@@ -49,6 +49,11 @@ def test_upload_epub_end_to_end(client, epub_path):
     chapter = client.get(f"/api/books/{body['id']}/chapters/{chapter_id}").json()
     assert chapter["blocks"][1]["text"] == "First paragraph."
 
+    # regression: see the matching note in test_api_jobs.py — SQLite round-trips this
+    # column as naive, and a bare .isoformat() produced no UTC offset, which JS's Date
+    # parser then misread as local time.
+    assert body["created_at"].endswith("+00:00"), f"created_at={body['created_at']!r} has no UTC offset"
+
 
 def test_upload_txt_and_list_books(client, txt_path):
     with txt_path.open("rb") as f:
@@ -80,3 +85,62 @@ def test_formats_endpoint_reports_calibre_unavailable(client):
     mobi = next(f for f in formats if f["extension"] == "mobi")
     assert mobi["available"] is False
     assert "Calibre" in mobi["note"]
+
+
+def test_update_chapter_title_and_enabled(client, epub_path):
+    with epub_path.open("rb") as f:
+        book_id = client.post("/api/books", files={"file": ("sample.epub", f, "application/epub+zip")}).json()["id"]
+    chapter_id = client.get(f"/api/books/{book_id}").json()["chapters"][0]["id"]
+
+    resp = client.patch(f"/api/books/{book_id}/chapters/{chapter_id}", json={"title": "Renamed", "enabled": False})
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["title"] == "Renamed"
+    assert body["enabled"] is False
+
+    # persisted
+    detail = client.get(f"/api/books/{book_id}").json()
+    assert detail["chapters"][0]["title"] == "Renamed"
+    assert detail["chapters"][0]["enabled"] is False
+
+
+def test_update_chapter_partial_update_leaves_other_field_alone(client, epub_path):
+    with epub_path.open("rb") as f:
+        book_id = client.post("/api/books", files={"file": ("sample.epub", f, "application/epub+zip")}).json()["id"]
+    chapter_id = client.get(f"/api/books/{book_id}").json()["chapters"][0]["id"]
+
+    resp = client.patch(f"/api/books/{book_id}/chapters/{chapter_id}", json={"enabled": False})
+    assert resp.status_code == 200
+    assert resp.json()["title"] == "Chapter One"  # unspecified field untouched
+    assert resp.json()["enabled"] is False
+
+
+def test_update_block_text(client, epub_path):
+    with epub_path.open("rb") as f:
+        book_id = client.post("/api/books", files={"file": ("sample.epub", f, "application/epub+zip")}).json()["id"]
+    chapter_id = client.get(f"/api/books/{book_id}").json()["chapters"][0]["id"]
+    block = client.get(f"/api/books/{book_id}/chapters/{chapter_id}").json()["blocks"][1]
+
+    resp = client.patch(
+        f"/api/books/{book_id}/chapters/{chapter_id}/blocks/{block['id']}", json={"text": "Edited text."}
+    )
+    assert resp.status_code == 200
+    assert resp.json()["text"] == "Edited text."
+
+    chapter = client.get(f"/api/books/{book_id}/chapters/{chapter_id}").json()
+    assert chapter["blocks"][1]["text"] == "Edited text."
+
+
+def test_update_chapter_not_found(client, epub_path):
+    with epub_path.open("rb") as f:
+        book_id = client.post("/api/books", files={"file": ("sample.epub", f, "application/epub+zip")}).json()["id"]
+    resp = client.patch(f"/api/books/{book_id}/chapters/999", json={"title": "X"})
+    assert resp.status_code == 404
+
+
+def test_update_block_not_found(client, epub_path):
+    with epub_path.open("rb") as f:
+        book_id = client.post("/api/books", files={"file": ("sample.epub", f, "application/epub+zip")}).json()["id"]
+    chapter_id = client.get(f"/api/books/{book_id}").json()["chapters"][0]["id"]
+    resp = client.patch(f"/api/books/{book_id}/chapters/{chapter_id}/blocks/999", json={"text": "X"})
+    assert resp.status_code == 404

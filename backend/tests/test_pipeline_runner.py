@@ -11,7 +11,7 @@ from sqlmodel import Session, SQLModel, create_engine
 from app import models  # noqa: F401  (registers tables)
 from app.ingest.persist import persist_document
 from app.models import JobStatus
-from app.pipeline.runner import create_job, run_job
+from app.pipeline.runner import JobCancelledError, create_job, run_job
 
 
 @pytest.fixture
@@ -79,3 +79,28 @@ def test_run_job_end_to_end(db_session, epub_path):
     assert all(s.start_s is not None for s in segments)
     # timings are monotonically non-decreasing across the assembled track
     assert all(b.start_s >= a.start_s for a, b in zip(segments, segments[1:]))
+
+
+def test_run_job_stops_at_the_next_checkpoint_when_already_cancelled(db_session, epub_path):
+    """A cancel request lands via a different DB session/connection (the API handler
+    for POST /api/jobs/{id}/cancel) — simulate that here by flipping the status on the
+    job row directly rather than going through run_job, then confirm run_job notices
+    on its very first cancellation checkpoint (before the "prepare" stage) and never
+    starts synthesizing."""
+    from app.ingest.epub import EpubParser
+
+    document = EpubParser().parse(epub_path)
+    book = persist_document(db_session, document, epub_path, "epub")
+    job = create_job(db_session, book, voice="af_heart", speed=1.0)
+
+    job.status = JobStatus.cancelled
+    db_session.add(job)
+    db_session.commit()
+
+    with pytest.raises(JobCancelledError):
+        run_job(db_session, job, workers=2)
+
+    db_session.refresh(job)
+    assert job.status == JobStatus.cancelled
+    assert job.finished_at is not None
+    assert job.stages == []  # cancelled before any stage even started

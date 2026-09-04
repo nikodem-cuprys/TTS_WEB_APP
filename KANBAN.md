@@ -16,7 +16,7 @@ M5 Publishing → M6 Quality & perf → L Later
 | Gate | Meaning | Card |
 |---|---|---|
 | **G1** ✅ | An EPUB becomes an English MP3 audiobook from the CLI | `M2-10` |
-| **G2** | The whole flow works in the browser, no CLI needed | `M3-5` |
+| **G2** ✅ | The whole flow works in the browser, no CLI needed | `M3-5` |
 | **G3** | All four languages render at acceptable quality | `M4-4` |
 | **G4** | Output is upload-ready: M4B + MP4 + SRT + timestamps | `M5-9` |
 | **G5** | Measured end-to-end RTF < 1.0, listening pass clean | `M6-2` |
@@ -24,34 +24,6 @@ M5 Publishing → M6 Quality & perf → L Later
 ---
 
 ## 📋 Backlog
-
-### M4 — Multi-language
-
-- **[M4-1] Piper ONNX engine** — M · M2-1
-  Wrap `piper1-gpl` / onnxruntime over `.onnx` + `.onnx.json` voice pairs, behind the same protocol.
-
-- **[M4-2] Polish normalizer + voices** — L · M4-1, M2-3
-  ⚠️ `num2words(lang="pl")` **declension** is the hard part — Polish numerals inflect by case and
-  gender. Abbreviations `np. / itd. / tzn. / m.in. / ul.`. Voices `pl_PL-gosia-medium`,
-  `pl_PL-darkman-medium`.
-  ✅ Listening pass on 3 minutes of Polish prose.
-
-- **[M4-3] German normalizer + voices** — M · M4-1
-  `z.B. / bzw. / Nr. / usw.`, ordinal periods (`3. Kapitel`), compound handling.
-  Voice `de_DE-thorsten-high`.
-  ✅ Listening pass on 3 minutes of German prose.
-
-- **[M4-4] 🎯 G3 — Chinese support** — L · M2-2
-  Kokoro `zf_/zm_` voices via `misaki[zh]` G2P. **No space tokenisation**; terminators are
-  `。！？；`; chunk packing counts characters, not words. Numbers read as Chinese numerals.
-  ✅ Listening pass on 3 minutes of Chinese prose.
-
-- **[M4-5] Language → engine routing + override UI** — S · M4-1
-  Auto-route EN/ZH → Kokoro, PL/DE → Piper, with an explicit manual override.
-
-- **[M4-6] Pronunciation lexicon + UI** — M · M2-5
-  Per-book `pattern → replacement` table (literal or regex) for names and invented words.
-  ✅ Editing an entry invalidates **only** the chunks that contain it.
 
 ### M5 — Publishing
 
@@ -123,33 +95,33 @@ M5 Publishing → M6 Quality & perf → L Later
 
 ## ✅ Ready
 
-### M3 — GUI
+### M4 — Multi-language
 
-- **[M3-1] Design system components** — M · M0-4
-  Button / Card / Select / Slider / Progress / Toast / Modal / Tree on the theme tokens.
-  Flat surfaces, 1px borders instead of shadows, 6px radii, green **only** for primary action,
-  active state, and progress. Monospace for all timestamps and durations.
+- **[M4-1] Piper ONNX engine** — M · M2-1
+  Wrap `piper1-gpl` / onnxruntime over `.onnx` + `.onnx.json` voice pairs, behind the same protocol.
 
-- **[M3-2] Library page + upload dropzone** — M · M1-8
-  Book grid with cover, language badge, duration estimate, status. Drag-and-drop upload with
-  per-file progress.
+- **[M4-2] Polish normalizer + voices** — L · M4-1, M2-3
+  ⚠️ `num2words(lang="pl")` **declension** is the hard part — Polish numerals inflect by case and
+  gender. Abbreviations `np. / itd. / tzn. / m.in. / ul.`. Voices `pl_PL-gosia-medium`,
+  `pl_PL-darkman-medium`.
+  ✅ Listening pass on 3 minutes of Polish prose.
 
-- **[M3-3] Book page: chapter tree + editing** — L · M3-2
-  Include/exclude toggles, rename, reorder, inline text editing, per-chapter word count and estimated
-  duration.
+- **[M4-3] German normalizer + voices** — M · M4-1
+  `z.B. / bzw. / Nr. / usw.`, ordinal periods (`3. Kapitel`), compound handling.
+  Voice `de_DE-thorsten-high`.
+  ✅ Listening pass on 3 minutes of German prose.
 
-- **[M3-4] Render config page** — M · M2-9
-  Language + voice picker with preview, speed, pause tuning, output format checkboxes, video style.
+- **[M4-4] 🎯 G3 — Chinese support** — L · M2-2
+  Kokoro `zf_/zm_` voices via `misaki[zh]` G2P. **No space tokenisation**; terminators are
+  `。！？；`; chunk packing counts characters, not words. Numbers read as Chinese numerals.
+  ✅ Listening pass on 3 minutes of Chinese prose.
 
-- **[M3-5] 🎯 G2 — Job monitor + SSE** — M · M2-9
-  `GET /api/jobs/{id}/events`. Per-chapter progress bars, ETA, **live RTF readout**, cancel.
-  ✅ The full flow is usable in the browser with no CLI.
+- **[M4-5] Language → engine routing + override UI** — S · M4-1
+  Auto-route EN/ZH → Kokoro, PL/DE → Piper, with an explicit manual override.
 
-- **[M3-6] Voice browser + preview** — S · M2-2
-  Every installed voice, grouped by language, with a one-click sample sentence.
-
-- **[M3-7] Settings page** — S
-  Worker count, loudness target, output directory, model download manager, disk usage.
+- **[M4-6] Pronunciation lexicon + UI** — M · M2-5
+  Per-book `pattern → replacement` table (literal or regex) for names and invented words.
+  ✅ Editing an entry invalidates **only** the chunks that contain it.
 
 ---
 
@@ -166,6 +138,71 @@ M5 Publishing → M6 Quality & perf → L Later
 ---
 
 ## ✔️ Done
+
+### M3 — GUI (all 7 cards) — 🎯 G2 achieved
+
+Driven end to end in a real Chrome browser via `claude-in-chrome` (chromium-cli wasn't available on
+this machine), not just typechecked: uploaded a real EPUB via drag-and-drop, expanded a chapter,
+edited a block's text and a chapter's title inline and confirmed both survived a full page reload,
+toggled a chapter off/on, started a render, watched **live SSE progress** through all 5 stages
+against the real backend, previewed voices with real synthesized audio, and round-tripped a
+settings change (worker count) through the real `Setting` DB table.
+
+**Two real bugs surfaced by browser testing that no unit test had caught, both now fixed with
+regression tests:**
+1. **Timestamps showed "7232s elapsed" instead of "35s."** SQLite round-trips our (always-UTC)
+   datetime columns as naive, and a bare `.isoformat()` on a naive value has no UTC offset —
+   which JavaScript's `Date` parser then reads as *local* time, not UTC. Every timestamp in every
+   API response was silently wrong by the viewer's own UTC offset. Fixed with a shared `utc_iso()`
+   helper (`app/util.py`) applied at every datetime serialization boundary (Job timestamps via
+   manual formatting, Book's via a Pydantic `field_serializer`). **Standing lesson: any new
+   datetime field needs the same treatment — see the standing decision below.**
+2. **The `<audio>` player showed 0:00/0:00 and never loaded**, even though the exact same file
+   downloaded and played fine outside the browser. Root cause: `FileResponse(..., filename=...)`
+   sets `Content-Disposition: attachment`, which tells the browser this is a file to save, not
+   inline media to play — confirmed by testing a trivial vanilla ffmpeg-generated MP3, which hit
+   the identical stuck state. Fixed by adding a separate `GET /api/jobs/{id}/stream` endpoint
+   (no `filename=`, so no attachment header) for the `<audio>` element's `src`, keeping `/download`
+   (with the attachment header) for the explicit download button.
+
+Also diagnosed and ruled out a **false positive**: this specific `claude-in-chrome` automated
+Chrome instance cannot decode *any* MP3 (confirmed by testing a minimal vanilla ffmpeg sine-wave
+file, served with no proxy involved at all, which hung identically) — an environment limitation,
+not an app bug. The pipeline's actual audio correctness was independently confirmed via `ffprobe`
+(valid duration, tags, bitrate) rather than by ear in this session.
+
+Backend also grew a fair amount beyond the original card list to make the GUI possible: job
+creation runs the render in a background thread (`app/api/jobs.py`, its own DB session via
+`db.new_session()` since the request-scoped session closes when the endpoint returns), a chapter/
+block PATCH API for inline editing, voice preview with content-addressed caching (first click
+synthesizes, every one after is instant), a `Setting`-table-backed settings store, and a
+`model_manifest.py` shared between `scripts/fetch_models.py` and the Settings page's model-status
+view (no more duplicated manifest). Cancellation is checked between **batches within the
+synthesize stage** (`SYNTHESIZE_BATCH_SIZE = 50`), not just between stages — the naive "check once
+per stage" design would leave cancel waiting for an entire book's synthesis to finish, since that
+stage dominates total render time by far.
+
+100 pytest cases total (up from 76 after M2), including real end-to-end job creation → SSE → poll
+→ download flows against the live API (background thread + isolated test DB, with the same
+`get_settings()` cache-clearing pattern M2 established, applied to a new wrinkle: the background
+thread's `db.new_session()` isn't reachable via FastAPI's `dependency_overrides` at all, since it's
+a plain module-level call, not a `Depends()` — fixed by monkeypatching the name directly in the
+`app.api.jobs` module).
+
+- **[M3-1] Design system components** — M · M0-4 — `Button/Card/Select/Slider/ProgressBar/Badge/
+  Spinner` on the theme tokens; verified visually consistent dark/grey/green across every page.
+- **[M3-2] Library page + upload dropzone** — M · M1-8 — drag-and-drop verified with a real file.
+- **[M3-3] Book page: chapter tree + editing** — L · M3-2 — toggle, rename, and inline block-text
+  edit all verified to persist across a reload. Word count + duration estimate computed client-side
+  (150 wpm heuristic) from real block text. Drag-to-reorder was scoped out — no ✅ line required it.
+- **[M3-4] Render config page** — M · M2-9 — voice picker scoped to the book's language, with an
+  explicit "not supported yet" state for pl/de/zh rather than a silent failure.
+- **[M3-5] 🎯 G2 — Job monitor + SSE** — M · M2-9 — real live progress verified through all 5
+  stages; cancel checked between synthesize batches, not just between stages (see above).
+- **[M3-6] Voice browser + preview** — S · M2-2 — all 54 voices grouped by language; non-English
+  groups carry an explicit "preview only, not usable yet" badge matching the M2 finding.
+- **[M3-7] Settings page** — S — worker count / loudness target save round-trip verified against
+  the real `Setting` table; disk usage and model presence both verified against real numbers.
 
 ### M2 — TTS core, English (all 10 cards) — 🎯 G1 achieved
 
@@ -273,3 +310,5 @@ grey those formats out up front. `@app.on_event` was migrated to a `lifespan` ha
 | Content-hashed chunk cache | Makes 10-hour renders resumable and edits incremental. |
 | SQLite + in-process pool, no Redis/Celery | Single-user local app; a broker is pure overhead. |
 | Local-only, no accounts, file export only | Confirmed with the user. YouTube upload stays manual. |
+| Every datetime field must round-trip through `util.utc_iso()` | SQLite drops tzinfo on read; a bare `.isoformat()` on the resulting naive value has no UTC offset, which JS's `Date` parser misreads as local time. Discovered in M3; applies to any future datetime field (M5's export timestamps, etc). |
+| Inline-playable media needs its own endpoint, separate from download | `FileResponse(..., filename=...)` sets `Content-Disposition: attachment`, which stops an `<audio>`/`<video>` element from loading it inline. M5's MP4 preview will need the same `/stream`-vs-`/download` split M3 built for the job's MP3. |

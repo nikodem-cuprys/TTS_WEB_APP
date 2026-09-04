@@ -14,8 +14,16 @@ from ..ingest.base import ParseError, ParserUnavailableError
 from ..ingest.calibre import CalibreParser
 from ..ingest.detect import PARSERS, resolve_parser
 from ..ingest.persist import persist_document
-from ..models import Book, Chapter
-from ..schemas import BlockOut, BookDetailOut, BookSummaryOut, ChapterDetailOut, ChapterSummaryOut
+from ..models import Block, Book, Chapter
+from ..schemas import (
+    BlockOut,
+    BlockUpdate,
+    BookDetailOut,
+    BookSummaryOut,
+    ChapterDetailOut,
+    ChapterSummaryOut,
+    ChapterUpdate,
+)
 
 router = APIRouter()
 
@@ -142,5 +150,46 @@ def get_chapter(book_id: int, chapter_id: int, session: Session = Depends(get_se
         index=chapter.index,
         title=chapter.title,
         enabled=chapter.enabled,
-        blocks=[BlockOut(index=b.index, kind=b.kind, text=b.text) for b in blocks],
+        blocks=[BlockOut(id=b.id, index=b.index, kind=b.kind, text=b.text) for b in blocks],
     )
+
+
+@router.patch("/books/{book_id}/chapters/{chapter_id}", response_model=ChapterDetailOut)
+def update_chapter(
+    book_id: int, chapter_id: int, body: ChapterUpdate, session: Session = Depends(get_session)
+) -> ChapterDetailOut:
+    chapter = session.get(Chapter, chapter_id)
+    if chapter is None or chapter.book_id != book_id:
+        raise HTTPException(status_code=404, detail="chapter not found")
+
+    if body.title is not None:
+        chapter.title = body.title
+    if body.enabled is not None:
+        chapter.enabled = body.enabled
+    session.add(chapter)
+    session.commit()
+    session.refresh(chapter)
+
+    blocks = sorted(chapter.blocks, key=lambda b: b.index)
+    return ChapterDetailOut(
+        id=chapter.id, index=chapter.index, title=chapter.title, enabled=chapter.enabled,
+        blocks=[BlockOut(id=b.id, index=b.index, kind=b.kind, text=b.text) for b in blocks],
+    )
+
+
+@router.patch("/books/{book_id}/chapters/{chapter_id}/blocks/{block_id}", response_model=BlockOut)
+def update_block(
+    book_id: int, chapter_id: int, block_id: int, body: BlockUpdate, session: Session = Depends(get_session)
+) -> BlockOut:
+    chapter = session.get(Chapter, chapter_id)
+    if chapter is None or chapter.book_id != book_id:
+        raise HTTPException(status_code=404, detail="chapter not found")
+    block = session.get(Block, block_id)
+    if block is None or block.chapter_id != chapter_id:
+        raise HTTPException(status_code=404, detail="block not found")
+
+    block.text = body.text
+    session.add(block)
+    session.commit()
+    session.refresh(block)
+    return BlockOut(id=block.id, index=block.index, kind=block.kind, text=block.text)

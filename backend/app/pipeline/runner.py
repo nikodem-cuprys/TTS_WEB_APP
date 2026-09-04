@@ -26,6 +26,7 @@ from ..audio.assemble import (
     AssembleItem,
     assemble_chapter,
 )
+from ..audio import loudness
 from ..audio.encode import encode_mp3, write_wav
 from ..audio.loudness import normalize_loudness
 from ..config import get_settings
@@ -39,9 +40,18 @@ from ..tts.registry import engine_for_language
 
 STAGE_NAMES = ["prepare", "synthesize", "assemble", "master", "export"]
 _SAFE_NAME_RE = re.compile(r"[^A-Za-z0-9 ._-]+")
+#: chunks per pool.synth_many() call in the synthesize stage — small enough that a
+#: cancel request is noticed within roughly one batch's worth of synthesis time on a
+#: long book, not just between whole stages (which, for "synthesize", the longest
+#: stage by far, would otherwise mean waiting for the entire book to finish).
+SYNTHESIZE_BATCH_SIZE = 50
 
 
 class PipelineError(Exception):
+    pass
+
+
+class JobCancelledError(PipelineError):
     pass
 
 
@@ -107,6 +117,21 @@ def _finish_stage(session: Session, stage: JobStage, status: JobStatus = JobStat
     session.commit()
 
 
+def _set_stage_progress(session: Session, stage: JobStage, progress: float) -> None:
+    stage.progress = progress
+    session.add(stage)
+    session.commit()
+
+
+def _check_cancelled(session: Session, job: Job) -> None:
+    """Re-reads the job's status from the DB — a cancel request comes from a different
+    session (the API request that handled POST /api/jobs/{id}/cancel), so only a fresh
+    read, not the in-memory `job` object, can see it."""
+    session.refresh(job)
+    if job.status == JobStatus.cancelled:
+        raise JobCancelledError(f"job {job.id} was cancelled")
+
+
 def create_job(session: Session, book: Book, *, voice: str, speed: float = 1.0, engine_id: str = "kokoro") -> Job:
     job = Job(book_id=book.id, status=JobStatus.queued, voice=voice, engine=engine_id, speed=speed, formats="mp3")
     session.add(job)
@@ -115,18 +140,32 @@ def create_job(session: Session, book: Book, *, voice: str, speed: float = 1.0, 
     return job
 
 
-def run_job(session: Session, job: Job, *, workers: int = DEFAULT_WORKERS, output_path: Path | None = None) -> Path:
+def run_job(
+    session: Session,
+    job: Job,
+    *,
+    workers: int = DEFAULT_WORKERS,
+    output_path: Path | None = None,
+    loudness_target_i: float = loudness.DEFAULT_TARGET_I,
+    loudness_target_tp: float = loudness.DEFAULT_TARGET_TP,
+    loudness_target_lra: float = loudness.DEFAULT_TARGET_LRA,
+) -> Path:
     settings = get_settings()
     book = session.get(Book, job.book_id)
     if book is None:
         raise PipelineError(f"job {job.id} references a missing book {job.book_id}")
 
-    job.status = JobStatus.running
-    job.started_at = time_now()
-    session.add(job)
-    session.commit()
-
     try:
+        # Checked BEFORE flipping to "running": a job cancelled while still queued (or
+        # in the brief window before this call) must not have that status clobbered
+        # back to running just because run_job() happened to start.
+        _check_cancelled(session, job)
+
+        job.status = JobStatus.running
+        job.started_at = time_now()
+        session.add(job)
+        session.commit()
+
         # --- prepare: normalize + segment + persist Segment rows -------------------
         stage = _start_stage(session, job, "prepare")
         engine = engine_for_language(book.language)
@@ -157,10 +196,16 @@ def run_job(session: Session, job: Job, *, workers: int = DEFAULT_WORKERS, outpu
         session.commit()
         _finish_stage(session, stage)
 
-        # --- synthesize --------------------------------------------------------------
+        # --- synthesize (batched so a cancel request is noticed mid-stage) -----------
+        _check_cancelled(session, job)
         stage = _start_stage(session, job, "synthesize")
+        results = []
         with SynthPool(workers=workers) as pool:
-            results = pool.synth_many(requests)
+            for batch_start in range(0, len(requests), SYNTHESIZE_BATCH_SIZE):
+                _check_cancelled(session, job)
+                batch = requests[batch_start : batch_start + SYNTHESIZE_BATCH_SIZE]
+                results.extend(pool.synth_many(batch))
+                _set_stage_progress(session, stage, len(results) / len(requests) if requests else 1.0)
 
         failed = [r for r in results if r.error]
         for segment, result in zip(segments, results):
@@ -176,6 +221,7 @@ def run_job(session: Session, job: Job, *, workers: int = DEFAULT_WORKERS, outpu
         _finish_stage(session, stage)
 
         # --- assemble: concatenate every chunk with fades + pauses -------------------
+        _check_cancelled(session, job)
         stage = _start_stage(session, job, "assemble")
         assemble_items = []
         for item, segment in zip(plan, segments):
@@ -193,12 +239,17 @@ def run_job(session: Session, job: Job, *, workers: int = DEFAULT_WORKERS, outpu
         _finish_stage(session, stage)
 
         # --- master: two-pass loudness normalization ----------------------------------
+        _check_cancelled(session, job)
         stage = _start_stage(session, job, "master")
         mastered_wav = settings.cache_dir() / f"job_{job.id}_mastered.wav"
-        normalize_loudness(raw_wav, mastered_wav)
+        normalize_loudness(
+            raw_wav, mastered_wav,
+            target_i=loudness_target_i, target_tp=loudness_target_tp, target_lra=loudness_target_lra,
+        )
         _finish_stage(session, stage)
 
         # --- export: MP3 with tags + cover -------------------------------------------
+        _check_cancelled(session, job)
         stage = _start_stage(session, job, "export")
         final_path = output_path or (settings.output_dir() / f"{_safe_filename(book.title)}.mp3")
         cover_path = Path(book.cover_path) if book.cover_path else None
@@ -207,10 +258,17 @@ def run_job(session: Session, job: Job, *, workers: int = DEFAULT_WORKERS, outpu
 
         job.status = JobStatus.done
         job.finished_at = time_now()
+        job.output_path = str(final_path)
         session.add(job)
         session.commit()
         return final_path
 
+    except JobCancelledError:
+        job.status = JobStatus.cancelled
+        job.finished_at = time_now()
+        session.add(job)
+        session.commit()
+        raise
     except Exception as exc:
         job.status = JobStatus.failed
         job.error = str(exc)

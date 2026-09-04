@@ -73,6 +73,7 @@ class Job(SQLModel, table=True):
     started_at: datetime | None = None
     finished_at: datetime | None = None
     error: str | None = None
+    output_path: str | None = None  # set once "export" finishes; download API reads this
 
     book: Book = Relationship(back_populates="jobs")
     stages: list["JobStage"] = Relationship(back_populates="job")

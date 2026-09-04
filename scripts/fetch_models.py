@@ -14,93 +14,17 @@ Usage:
 from __future__ import annotations
 
 import argparse
-import hashlib
 import sys
 import urllib.request
-from dataclasses import dataclass
 from pathlib import Path
 from urllib.error import HTTPError, URLError
 
-MODELS_DIR = Path(__file__).resolve().parents[1] / "models"
+_REPO_ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(_REPO_ROOT / "backend"))
 
-_KOKORO_RELEASE = "https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files-v1.0"
-_PIPER_VOICES = "https://huggingface.co/rhasspy/piper-voices/resolve/main"
+from app.model_manifest import MANIFEST, ModelFile, is_valid  # noqa: E402
 
-
-@dataclass(frozen=True)
-class ModelFile:
-    dest: str  # path relative to MODELS_DIR
-    url: str
-    size: int  # expected bytes, always checked
-    sha256: str | None = None  # checked when known
-
-
-MANIFEST: list[ModelFile] = [
-    # Kokoro-82M: shared engine for English + Chinese voices (see PLAN.md routing table).
-    ModelFile(
-        dest="kokoro/kokoro-v1.0.onnx",
-        url=f"{_KOKORO_RELEASE}/kokoro-v1.0.onnx",
-        size=325_532_387,
-    ),
-    ModelFile(
-        dest="kokoro/voices-v1.0.bin",
-        url=f"{_KOKORO_RELEASE}/voices-v1.0.bin",
-        size=28_214_398,
-    ),
-    # Piper: Polish voices.
-    ModelFile(
-        dest="piper/pl_PL-gosia-medium.onnx",
-        url=f"{_PIPER_VOICES}/pl/pl_PL/gosia/medium/pl_PL-gosia-medium.onnx",
-        size=63_201_294,
-        sha256="38f66464240ed74f186e6b7dc13c6e3b22e023426299f25c2b3cc9dfa9373fbc",
-    ),
-    ModelFile(
-        dest="piper/pl_PL-gosia-medium.onnx.json",
-        url=f"{_PIPER_VOICES}/pl/pl_PL/gosia/medium/pl_PL-gosia-medium.onnx.json",
-        size=4_814,
-    ),
-    ModelFile(
-        dest="piper/pl_PL-darkman-medium.onnx",
-        url=f"{_PIPER_VOICES}/pl/pl_PL/darkman/medium/pl_PL-darkman-medium.onnx",
-        size=63_201_294,
-        sha256="db505438a5364e8e2e0242c4324130a873ed660dfbe8d9689cef428ffb1b645f",
-    ),
-    ModelFile(
-        dest="piper/pl_PL-darkman-medium.onnx.json",
-        url=f"{_PIPER_VOICES}/pl/pl_PL/darkman/medium/pl_PL-darkman-medium.onnx.json",
-        size=4_816,
-    ),
-    # Piper: German voice.
-    ModelFile(
-        dest="piper/de_DE-thorsten-high.onnx",
-        url=f"{_PIPER_VOICES}/de/de_DE/thorsten/high/de_DE-thorsten-high.onnx",
-        size=113_895_201,
-        sha256="9df1c43c61149ef9b39e618e2b861fbe41e1fcea9390b2dac62e8761573ea4f1",
-    ),
-    ModelFile(
-        dest="piper/de_DE-thorsten-high.onnx.json",
-        url=f"{_PIPER_VOICES}/de/de_DE/thorsten/high/de_DE-thorsten-high.onnx.json",
-        size=4_875,
-    ),
-]
-
-
-def _sha256_of(path: Path) -> str:
-    h = hashlib.sha256()
-    with path.open("rb") as f:
-        for chunk in iter(lambda: f.read(1 << 20), b""):
-            h.update(chunk)
-    return h.hexdigest()
-
-
-def _is_valid(path: Path, model: ModelFile) -> bool:
-    if not path.is_file():
-        return False
-    if path.stat().st_size != model.size:
-        return False
-    if model.sha256 and _sha256_of(path) != model.sha256:
-        return False
-    return True
+MODELS_DIR = _REPO_ROOT / "models"
 
 
 def _format_bytes(n: int) -> str:
@@ -155,14 +79,14 @@ def fetch_all(force: bool = False) -> int:
     for model in MANIFEST:
         dest_path = MODELS_DIR / model.dest
 
-        if not force and _is_valid(dest_path, model):
+        if not force and is_valid(dest_path, model):
             print(f"  {model.dest}  already present, skipping")
             continue
 
         for attempt in range(1, 4):
             try:
                 _download(model, dest_path)
-                if _is_valid(dest_path, model):
+                if is_valid(dest_path, model):
                     break
                 print(f"    verification failed for {model.dest} (attempt {attempt}/3)")
                 dest_path.unlink(missing_ok=True)

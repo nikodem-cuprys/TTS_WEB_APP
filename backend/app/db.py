@@ -21,3 +21,10 @@ def init_db() -> None:
 def get_session() -> Generator[Session, None, None]:
     with Session(_engine) as session:
         yield session
+
+
+def new_session() -> Session:
+    """For code that runs outside a request (background render threads): the request-
+    scoped session from get_session() is closed once the HTTP response returns, so a
+    background job needs its own session with its own lifetime."""
+    return Session(_engine)

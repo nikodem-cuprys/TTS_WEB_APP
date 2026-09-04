@@ -6,6 +6,9 @@ from fastapi.staticfiles import StaticFiles
 
 from .api.books import router as books_router
 from .api.health import router as health_router
+from .api.jobs import router as jobs_router
+from .api.settings import router as settings_router
+from .api.voices import router as voices_router
 from .config import REPO_ROOT, get_settings
 from .db import init_db
 
@@ -30,6 +33,9 @@ app.add_middleware(
 
 app.include_router(health_router, prefix="/api")
 app.include_router(books_router, prefix="/api")
+app.include_router(jobs_router, prefix="/api")
+app.include_router(voices_router, prefix="/api")
+app.include_router(settings_router, prefix="/api")
 
 # Serve the built frontend (frontend/dist) as a SPA, once it exists. In dev, the Vite
 # dev server (npm run dev) serves the UI instead and this mount is simply absent.

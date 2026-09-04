@@ -1,0 +1,91 @@
+@import "tailwindcss";
+
+@theme inline {
+  --color-bg: var(--bg);
+  --color-surface: var(--surface);
+  --color-elevated: var(--elevated);
+  --color-border: var(--border);
+
+  --color-text: var(--text);
+  --color-text-2: var(--text-2);
+  --color-text-3: var(--text-3);
+
+  --color-accent: var(--accent);
+  --color-accent-hover: var(--accent-hover);
+  --color-accent-dim: var(--accent-dim);
+
+  --color-danger: var(--danger);
+  --color-warn: var(--warn);
+
+  --font-sans: var(--font);
+  --font-mono: var(--mono);
+  --radius-md: var(--radius);
+}
+
+/* Audiobook Studio design tokens — dark, grey, green accent. See PLAN.md. */
+:root {
+  --bg: #0e1011;
+  --surface: #16191b;
+  --elevated: #1d2124;
+  --border: #282d31;
+
+  --text: #e6eaea;
+  --text-2: #9aa4a6;
+  --text-3: #6b7679;
+
+  --accent: #3ecf8e;
+  --accent-hover: #4ade80;
+  --accent-dim: #1f6f4e;
+  --ring: rgba(62, 207, 142, 0.28);
+
+  --danger: #e05252;
+  --warn: #d9a03c;
+
+  --radius: 6px;
+  --font: Inter, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --mono: "JetBrains Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font);
+  font-size: 14px;
+  -webkit-font-smoothing: antialiased;
+}
+
+.font-mono-tabular {
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
+}
+
+::selection {
+  background: var(--ring);
+  color: var(--text);
+}
+
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-track {
+  background: var(--bg);
+}
+::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 999px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--text-3);
+}

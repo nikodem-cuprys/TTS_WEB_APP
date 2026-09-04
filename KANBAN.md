@@ -25,90 +25,6 @@ M5 Publishing → M6 Quality & perf → L Later
 
 ## 📋 Backlog
 
-### M1 — Ingest
-
-- **[M1-1] Document model + Parser protocol** — S
-  `Book / Chapter / Block` dataclasses + `Parser` Protocol in `ingest/base.py`. Every parser returns
-  a `Document`; every downstream stage consumes only a `Document`.
-
-- **[M1-2] TXT parser** — S · M1-1
-  Blank-line paragraph detection, heuristic chapter split, encoding sniffing (UTF-8/CP1250/Latin-2 —
-  Polish text is frequently CP1250).
-
-- **[M1-3] EPUB parser** — M · M1-1
-  `ebooklib` + BeautifulSoup. Chapters follow the **spine**; titles from EPUB3 nav doc, falling back
-  to EPUB2 NCX, falling back to the first `<h1>/<h2>`. Extract cover image. Drop nav/copyright pages.
-  ✅ A real EPUB yields correct chapter count, ordered titles, and clean prose blocks.
-
-- **[M1-4] PDF parser** — L · M1-1
-  PyMuPDF. Strip repeated headers/footers (text blocks recurring at the same y-position across
-  pages), de-hyphenate line-end `-\n`, join wrapped lines, handle 2-column layouts, drop page
-  numbers. Prefer the PDF outline for chapters; fall back to font-size outliers +
-  `^(Chapter|Rozdział|Kapitel|第.章)`.
-  ✅ No page numbers or running heads survive into the audio.
-
-- **[M1-5] DOCX + HTML + FB2 parsers** — M · M1-1
-  `python-docx` (styles → block kinds), BeautifulSoup with boilerplate stripping, FB2 XML sections.
-
-- **[M1-6] Calibre shim** — M · M1-3
-  Shell out to `ebook-convert` for MOBI / AZW3 / LIT / PDB / RTF → EPUB, then reuse the EPUB parser.
-  ✅ **Optional dependency:** when `ebook-convert` is absent the UI marks those formats unavailable
-  with an install hint — it must never crash the upload.
-
-- **[M1-7] Format + language detection** — S
-  Sniff format by magic bytes, not extension. Language via `lingua-py` on a prose sample; result
-  preselects the voice in the render form.
-
-- **[M1-8] Upload API + parser fixtures** — M · M1-2…M1-7
-  `POST /api/books` (streamed multipart, size cap), persist original + parsed `Document`.
-  ✅ `pytest` fixtures for EPUB, 2-column PDF, TXT, DOCX assert chapter counts and clean text.
-
-### M2 — TTS core (English)
-
-- **[M2-1] TTSEngine protocol + registry** — S
-  `voices() -> list[VoiceInfo]`, `synth(text, voice, speed) -> (float32 mono, sample_rate)`.
-  Registry holds the voice catalog and the language → engine routing table.
-
-- **[M2-2] Kokoro ONNX engine** — M · M2-1, M0-5
-  Wrap `kokoro-onnx` (model + `voices.bin`). Build the ONNX session **once per process** — session
-  construction dominates cost otherwise. Expose the `af_/am_/bf_/bm_` English voices.
-
-- **[M2-3] English normalizer** — L · M1-1
-  ⭐ *Single largest quality lever.* Ordered rules: numbers / ordinals / currency / percent / dates /
-  times via `num2words`; roman numerals in headings; abbreviations (`Mr.`, `Dr.`, `etc.`, `vs.`) so a
-  trailing period isn't read as a full stop; smart quotes, em-dash → pause, ellipsis, `&`, footnote
-  markers; ALL-CAPS → capitalised so it isn't spelled letter by letter.
-  ✅ Golden-file tests: `$1,234.56`, `Chapter XIV`, `1939–1945`, `3rd`, `Dr. Smith vs. Mr. Jones`.
-
-- **[M2-4] Segmenter** — M · M2-3
-  `pysbd` sentence split, then pack into ≤350-char chunks. **Never splits mid-sentence.** The chunk
-  is the unit of caching, parallelism, and subtitle timing.
-
-- **[M2-5] Chunk cache** — M · M2-4
-  `data/cache/{sha256(text + voice + engine_version + speed + normalizer_version)}.wav`.
-  ✅ Renders are resumable; fixing one typo re-synthesises only the affected chunks.
-
-- **[M2-6] Worker pool** — M · M2-2, M2-5
-  `ProcessPoolExecutor(4)`, one warm ONNX session per worker, `intra_op_num_threads` set so
-  `workers × threads ≈ 10` on the 6C/12T CPU. Safe because Kokoro/Piper are non-autoregressive and
-  hold no cross-chunk state.
-
-- **[M2-7] Assembly + pauses + fades** — M · M2-6
-  Concatenate with configurable silence (sentence 0.35 s / paragraph 0.6 s / chapter 1.2 s) and 10 ms
-  fades at joins.
-  ✅ No audible click at any chunk boundary. Duration ≈ Σ chunks + Σ pauses (±50 ms).
-
-- **[M2-8] Loudness master + MP3 export** — M · M2-7
-  ffmpeg **two-pass** `loudnorm` to `I=-19 LUFS, TP=-3 dBTP, LRA=7` (inside ACX limits), 60 Hz
-  high-pass, then MP3 with ID3 tags + embedded cover.
-  ✅ `ffprobe` confirms the target loudness.
-
-- **[M2-9] Pipeline runner + job records** — M · M2-8
-  Stage orchestration, progress rows in SQLite, cancel, resume-from-cache.
-
-- **[M2-10] 🎯 G1 — EPUB → English MP3 via CLI** — S · M2-9
-  ✅ One command turns a real public-domain EPUB into a listenable chaptered MP3.
-
 ### M3 — GUI
 
 - **[M3-1] Design system components** — M · M0-4
@@ -235,28 +151,51 @@ M5 Publishing → M6 Quality & perf → L Later
 
 ## ✅ Ready
 
-### M0 — Scaffold
+### M2 — TTS core (English)
 
-- **[M0-1] Repo scaffold + git init** — S
-  `git init`, README, `.gitignore` (`data/`, `models/`, `node_modules/`, `__pycache__/`, `.venv/`),
-  license.
+- **[M2-1] TTSEngine protocol + registry** — S
+  `voices() -> list[VoiceInfo]`, `synth(text, voice, speed) -> (float32 mono, sample_rate)`.
+  Registry holds the voice catalog and the language → engine routing table.
 
-- **[M0-2] Backend skeleton** — M
-  FastAPI app, `config.py` via pydantic-settings, CORS for the Vite dev server, `/api/health`,
-  static SPA mount for the production build.
-  ✅ `uvicorn app.main:app --reload` serves `/api/health`.
+- **[M2-2] Kokoro ONNX engine** — M · M2-1, M0-5
+  Wrap `kokoro-onnx` (model + `voices.bin`). Build the ONNX session **once per process** — session
+  construction dominates cost otherwise. Expose the `af_/am_/bf_/bm_` English voices.
 
-- **[M0-3] SQLite + SQLModel schema** — M · M0-2
-  `Book, Chapter, Block, Job, JobStage, Segment, LexiconEntry, Setting`. Auto-create on first run.
+- **[M2-3] English normalizer** — L · M1-1
+  ⭐ *Single largest quality lever.* Ordered rules: numbers / ordinals / currency / percent / dates /
+  times via `num2words`; roman numerals in headings; abbreviations (`Mr.`, `Dr.`, `etc.`, `vs.`) so a
+  trailing period isn't read as a full stop; smart quotes, em-dash → pause, ellipsis, `&`, footnote
+  markers; ALL-CAPS → capitalised so it isn't spelled letter by letter.
+  ✅ Golden-file tests: `$1,234.56`, `Chapter XIV`, `1939–1945`, `3rd`, `Dr. Smith vs. Mr. Jones`.
 
-- **[M0-4] Frontend skeleton** — M
-  Vite + React + TS + Tailwind + Zustand, router, `theme.css` design tokens, dark app shell and nav.
-  ✅ `npm run dev` renders the themed shell and reaches `/api/health`.
+- **[M2-4] Segmenter** — M · M2-3
+  `pysbd` sentence split, then pack into ≤350-char chunks. **Never splits mid-sentence.** The chunk
+  is the unit of caching, parallelism, and subtitle timing.
 
-- **[M0-5] Model fetcher** — S
-  `scripts/fetch_models.py` downloads Kokoro (`.onnx` + `voices.bin`) and Piper
-  `pl_PL-gosia-medium`, `pl_PL-darkman-medium`, `de_DE-thorsten-high` into `models/`.
-  Resumable, checksum-verified, skips what already exists.
+- **[M2-5] Chunk cache** — M · M2-4
+  `data/cache/{sha256(text + voice + engine_version + speed + normalizer_version)}.wav`.
+  ✅ Renders are resumable; fixing one typo re-synthesises only the affected chunks.
+
+- **[M2-6] Worker pool** — M · M2-2, M2-5
+  `ProcessPoolExecutor(4)`, one warm ONNX session per worker, `intra_op_num_threads` set so
+  `workers × threads ≈ 10` on the 6C/12T CPU. Safe because Kokoro/Piper are non-autoregressive and
+  hold no cross-chunk state.
+
+- **[M2-7] Assembly + pauses + fades** — M · M2-6
+  Concatenate with configurable silence (sentence 0.35 s / paragraph 0.6 s / chapter 1.2 s) and 10 ms
+  fades at joins.
+  ✅ No audible click at any chunk boundary. Duration ≈ Σ chunks + Σ pauses (±50 ms).
+
+- **[M2-8] Loudness master + MP3 export** — M · M2-7
+  ffmpeg **two-pass** `loudnorm` to `I=-19 LUFS, TP=-3 dBTP, LRA=7` (inside ACX limits), 60 Hz
+  high-pass, then MP3 with ID3 tags + embedded cover.
+  ✅ `ffprobe` confirms the target loudness.
+
+- **[M2-9] Pipeline runner + job records** — M · M2-8
+  Stage orchestration, progress rows in SQLite, cancel, resume-from-cache.
+
+- **[M2-10] 🎯 G1 — EPUB → English MP3 via CLI** — S · M2-9
+  ✅ One command turns a real public-domain EPUB into a listenable chaptered MP3.
 
 ---
 
@@ -273,6 +212,40 @@ M5 Publishing → M6 Quality & perf → L Later
 ---
 
 ## ✔️ Done
+
+### M1 — Ingest (all 8 cards)
+
+Verified end-to-end: uploaded every fixture through the real HTTP API (not just unit-tested), and
+27 pytest cases cover parsers, format/language detection, and the API. Notably: the PDF font-size
+heading heuristic, header/footer stripping, and 2-column reading-order logic were each confirmed
+against synthetic multi-page PDF fixtures generated with PyMuPDF (not just eyeballed); the Calibre
+shim was verified against a real "not installed" environment (Calibre isn't on this machine) so the
+graceful-degradation path is real, not theoretical, and `/api/formats` lets the future upload UI
+grey those formats out up front. `@app.on_event` was migrated to a `lifespan` handler along the way
+(deprecated in the FastAPI version this project pinned).
+
+- **[M1-1] Document model + Parser protocol** — S — `ingest/document.py` + `ingest/base.py`.
+- **[M1-2] TXT parser** — S · M1-1 — encoding sniffing verified against real CP1250 Polish text.
+- **[M1-3] EPUB parser** — M · M1-1 — spine order, nav-derived titles, nav document dropped.
+- **[M1-4] PDF parser** — L · M1-1 — outline path, font-size-heuristic path, and header/footer/
+  column logic all independently verified against synthetic fixtures.
+- **[M1-5] DOCX + HTML + FB2 parsers** — M · M1-1 — Heading-1-starts-chapter convention; FB2
+  footnote `<body name="notes">` correctly excluded from chapters.
+- **[M1-6] Calibre shim** — M · M1-3 — confirmed graceful `ParserUnavailableError` with install
+  hint on this Calibre-less machine.
+- **[M1-7] Format + language detection** — S — magic-byte sniffing (ZIP-internals-aware for
+  EPUB vs. DOCX) + `lingua` detector confirmed on real en/pl/de/zh text.
+- **[M1-8] Upload API + parser fixtures** — M · M1-2…M1-7 — `POST/GET /api/books`,
+  `GET /api/books/{id}/chapters/{id}`, `GET /api/formats`; 27 tests passing.
+
+### M0 — Scaffold (all 5 cards)
+
+- **[M0-1] Repo scaffold + git init** — S
+- **[M0-2] Backend skeleton** — M — `/api/health` verified live.
+- **[M0-3] SQLite + SQLModel schema** — M · M0-2 — all 8 tables confirmed created on startup.
+- **[M0-4] Frontend skeleton** — M — dev server verified reaching the backend via proxy.
+- **[M0-5] Model fetcher** — S — all 8 model files downloaded, checksummed, and skip-on-rerun
+  confirmed.
 
 - **[P-0] Architecture plan + this board** — done
   Hardware audited, engine strategy settled: **ONNX Runtime on CPU**, no PyTorch/CUDA (the 1050 Ti is

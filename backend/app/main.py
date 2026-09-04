@@ -1,14 +1,24 @@
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
+from .api.books import router as books_router
 from .api.health import router as health_router
 from .config import REPO_ROOT, get_settings
 from .db import init_db
 
 settings = get_settings()
 
-app = FastAPI(title="Audiobook Studio API", version="0.1.0")
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    init_db()
+    yield
+
+
+app = FastAPI(title="Audiobook Studio API", version="0.1.0", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
@@ -19,12 +29,7 @@ app.add_middleware(
 )
 
 app.include_router(health_router, prefix="/api")
-
-
-@app.on_event("startup")
-def on_startup() -> None:
-    init_db()
-
+app.include_router(books_router, prefix="/api")
 
 # Serve the built frontend (frontend/dist) as a SPA, once it exists. In dev, the Vite
 # dev server (npm run dev) serves the UI instead and this mount is simply absent.

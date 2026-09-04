@@ -33,13 +33,27 @@ def client(tmp_path, monkeypatch):
         engine.dispose()
 
 
-def test_list_voices_includes_kokoro_english(client):
+def test_list_voices_includes_all_routed_engines(client):
+    # 54 Kokoro (en/zh routed, plus a handful of other languages it just happens to
+    # catalog) + 3 Piper (pl/de routed) — see registry.py's LANGUAGE_ROUTING ([M4-5]).
     voices = client.get("/api/voices").json()
-    assert len(voices) == 54
+    assert len(voices) == 57
+
     en_voices = [v for v in voices if v["language"] == "en"]
     assert any(v["id"] == "af_heart" for v in en_voices)
-    assert all(v["engine"] == "kokoro" for v in voices)
-    assert all(v["sample_rate"] == 24000 for v in voices)
+    assert all(v["engine"] == "kokoro" and v["sample_rate"] == 24000 for v in en_voices)
+
+    pl_voices = [v for v in voices if v["language"] == "pl"]
+    assert len(pl_voices) == 2
+    assert all(v["engine"] == "piper" and v["sample_rate"] == 22050 for v in pl_voices)
+
+    de_voices = [v for v in voices if v["language"] == "de"]
+    assert len(de_voices) == 1
+    assert de_voices[0]["engine"] == "piper"
+
+    zh_voices = [v for v in voices if v["language"] == "zh"]
+    assert len(zh_voices) == 8
+    assert all(v["engine"] == "kokoro" for v in zh_voices)
 
 
 def test_unknown_voice_preview_returns_404(client):

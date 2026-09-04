@@ -2,6 +2,10 @@
 language routing table in PLAN.md. Session construction (~2s, loading a 310MB model) is
 the expensive part, so callers must build one KokoroEngine per worker process and reuse
 it across every synth() call — never per chunk. See PLAN.md 'tts/kokoro.py'.
+
+Chinese voices ("zf_"/"zm_") route through misaki's ZHG2P instead of this package's
+built-in phonemizer — see the [M4-4] note on synth() for why that's necessary, not
+optional.
 """
 from pathlib import Path
 
@@ -63,6 +67,7 @@ class KokoroEngine:
         self._kokoro = Kokoro.from_session(session, str(voices_path))
         self._sample_rate = 24000
         self._voices: list[VoiceInfo] | None = None
+        self._zh_g2p = None  # lazy: ZHG2P() takes ~1s to build its jieba dictionary
 
     def voices(self) -> list[VoiceInfo]:
         if self._voices is None:
@@ -71,13 +76,27 @@ class KokoroEngine:
             ]
         return self._voices
 
+    def _get_zh_g2p(self):
+        if self._zh_g2p is None:
+            from misaki.zh import ZHG2P
+
+            self._zh_g2p = ZHG2P()
+        return self._zh_g2p
+
     def synth(self, text: str, voice: str, *, speed: float = 1.0, **opts) -> tuple[np.ndarray, int]:
-        # This package phonemizes via a bare phonemizer+espeak-ng pass-through (see
-        # tokenizer.py), not the misaki G2P frontend the original Kokoro model card
-        # assumes — passing lang="cmn" here was verified to silently mis-phonemize
-        # Chinese (it fell back to English phonemes). Only "en-us"/"en-gb" are
-        # confirmed to work; Mandarin needs a real G2P solution in [M4-4], not a lang
-        # tag. Defaulting to en-us keeps this engine honest about M2's English-only scope.
-        lang = opts.get("lang", "en-us")
-        samples, sr = self._kokoro.create(text, voice=voice, speed=speed, lang=lang)
+        if voice.startswith("z"):
+            # This package phonemizes via a bare phonemizer+espeak-ng pass-through
+            # (see tokenizer.py), not the misaki G2P frontend the Kokoro model was
+            # actually trained with — passing lang="cmn" was verified to silently
+            # mis-phonemize Chinese (falls back to English phonemes). The fix is to
+            # phonemize with misaki ourselves and feed Kokoro the phonemes directly
+            # (is_phonemes=True), bypassing its broken built-in path entirely —
+            # verified 100% of misaki's output phonemes exist in Kokoro's vocabulary
+            # (tokenizer.known()), vs. the old approach producing "(en)...(cmn)"
+            # English-fallback garbage. See KANBAN [M4-4].
+            phonemes, _ = self._get_zh_g2p()(text)
+            samples, sr = self._kokoro.create(phonemes, voice=voice, is_phonemes=True, speed=speed)
+        else:
+            lang = opts.get("lang", "en-us")
+            samples, sr = self._kokoro.create(text, voice=voice, speed=speed, lang=lang)
         return samples, sr

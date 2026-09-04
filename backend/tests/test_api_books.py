@@ -87,6 +87,24 @@ def test_formats_endpoint_reports_calibre_unavailable(client):
     assert "Calibre" in mobi["note"]
 
 
+def test_update_book_language_override(client, epub_path):
+    with epub_path.open("rb") as f:
+        book_id = client.post("/api/books", files={"file": ("sample.epub", f, "application/epub+zip")}).json()["id"]
+    assert client.get(f"/api/books/{book_id}").json()["language"] == "en"
+
+    resp = client.patch(f"/api/books/{book_id}", json={"language": "de"})
+    assert resp.status_code == 200
+    assert resp.json()["language"] == "de"
+
+    # persisted
+    assert client.get(f"/api/books/{book_id}").json()["language"] == "de"
+
+
+def test_update_book_not_found(client):
+    resp = client.patch("/api/books/999", json={"language": "de"})
+    assert resp.status_code == 404
+
+
 def test_update_chapter_title_and_enabled(client, epub_path):
     with epub_path.open("rb") as f:
         book_id = client.post("/api/books", files={"file": ("sample.epub", f, "application/epub+zip")}).json()["id"]

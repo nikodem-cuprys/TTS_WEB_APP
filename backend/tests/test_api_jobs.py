@@ -160,6 +160,16 @@ def test_create_job_with_unknown_voice_returns_422(client, uploaded_book_id):
     assert resp.status_code == 422
 
 
+def test_create_job_with_wrong_engine_voice_returns_422(client, uploaded_book_id):
+    # The book is English (routes to kokoro); a Piper (Polish/German) voice must be
+    # rejected up front rather than silently reaching the wrong engine's worker and
+    # failing deep inside the synthesize stage instead.
+    resp = client.post(f"/api/books/{uploaded_book_id}/jobs", json={"voice": "pl_PL-gosia-medium"})
+    assert resp.status_code == 422
+    assert "piper" in resp.json()["detail"]
+    assert "kokoro" in resp.json()["detail"]
+
+
 def test_download_before_job_finishes_returns_409(client, uploaded_book_id):
     resp = client.post(f"/api/books/{uploaded_book_id}/jobs", json={"voice": "af_heart"})
     job_id = resp.json()["id"]

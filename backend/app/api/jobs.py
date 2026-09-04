@@ -84,14 +84,26 @@ def create_render_job(book_id: int, body: CreateJobRequest, session: Session = D
         raise HTTPException(status_code=404, detail="book not found")
 
     try:
-        engine_for_language(book.language)
+        engine = engine_for_language(book.language)
     except UnsupportedLanguageError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
     try:
-        resolve_voice(body.voice)
+        voice = resolve_voice(body.voice)
     except VoiceNotFoundError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    if voice.engine != engine.id:
+        # _build_chunk_plan (pipeline/runner.py) always synthesizes with the engine
+        # book.language routes to — a voice from a different engine would silently
+        # reach the wrong engine's worker and fail there instead of here.
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                f"voice {body.voice!r} belongs to engine {voice.engine!r}, but book "
+                f"language {book.language!r} routes to {engine.id!r}"
+            ),
+        )
 
     typed = settings_store.get_typed(session)
     job = create_job(session, book, voice=body.voice, speed=body.speed)

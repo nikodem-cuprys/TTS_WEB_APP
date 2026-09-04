@@ -62,3 +62,33 @@ class BookSummaryOut(BaseModel):
 
 class BookDetailOut(BookSummaryOut):
     chapters: list[ChapterSummaryOut]
+
+
+class BookUpdate(BaseModel):
+    #: manual override for a wrong auto-detected language ([M4-5]) — title/author
+    #: aren't editable yet since nothing in the product needs that today.
+    language: str | None = None
+    title: str | None = None
+    author: str | None = None
+
+
+class LexiconEntryOut(BaseModel):
+    id: int
+    pattern: str
+    replacement: str
+    is_regex: bool
+    enabled: bool
+
+
+class LexiconEntryCreate(BaseModel):
+    pattern: str
+    replacement: str
+    is_regex: bool = False
+    enabled: bool = True
+
+
+class LexiconEntryUpdate(BaseModel):
+    pattern: str | None = None
+    replacement: str | None = None
+    is_regex: bool | None = None
+    enabled: bool | None = None

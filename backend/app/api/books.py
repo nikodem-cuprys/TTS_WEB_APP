@@ -20,6 +20,7 @@ from ..schemas import (
     BlockUpdate,
     BookDetailOut,
     BookSummaryOut,
+    BookUpdate,
     ChapterDetailOut,
     ChapterSummaryOut,
     ChapterUpdate,
@@ -130,6 +131,39 @@ def get_book(book_id: int, session: Session = Depends(get_session)) -> BookDetai
         has_cover=book.cover_path is not None,
         chapter_count=len(chapters),
         created_at=book.created_at,
+        chapters=[
+            ChapterSummaryOut(
+                id=c.id, index=c.index, title=c.title, enabled=c.enabled, block_count=len(c.blocks)
+            )
+            for c in chapters
+        ],
+    )
+
+
+@router.patch("/books/{book_id}", response_model=BookDetailOut)
+def update_book(book_id: int, body: BookUpdate, session: Session = Depends(get_session)) -> BookDetailOut:
+    """Mainly for overriding a wrong auto-detected language ([M4-5]) — the render
+    config page filters voices by this field, so fixing it here is what "override"
+    means in practice, rather than a separate per-render language parameter."""
+    book = session.get(Book, book_id)
+    if book is None:
+        raise HTTPException(status_code=404, detail="book not found")
+
+    if body.language is not None:
+        book.language = body.language
+    if body.title is not None:
+        book.title = body.title
+    if body.author is not None:
+        book.author = body.author
+    session.add(book)
+    session.commit()
+    session.refresh(book)
+
+    chapters = sorted(book.chapters, key=lambda c: c.index)
+    return BookDetailOut(
+        id=book.id, title=book.title, author=book.author, language=book.language,
+        source_format=book.source_format, has_cover=book.cover_path is not None,
+        chapter_count=len(chapters), created_at=book.created_at,
         chapters=[
             ChapterSummaryOut(
                 id=c.id, index=c.index, title=c.title, enabled=c.enabled, block_count=len(c.blocks)

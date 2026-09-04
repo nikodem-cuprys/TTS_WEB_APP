@@ -4,6 +4,10 @@ import Button from '../components/ui/Button'
 import Card from '../components/ui/Card'
 import { listVoices, previewVoice, type VoiceInfo } from '../lib/api'
 
+// Matches backend/app/tts/registry.py's LANGUAGE_ROUTING — everything else Kokoro
+// happens to catalog (es/fr/hi/it/ja/pt) has no engine routed to it yet.
+const SUPPORTED_LANGUAGES = new Set(['en', 'pl', 'de', 'zh'])
+
 export default function Voices() {
   const [voices, setVoices] = useState<VoiceInfo[] | null>(null)
   const [playingId, setPlayingId] = useState<string | null>(null)
@@ -48,8 +52,8 @@ export default function Voices() {
     <div className="mx-auto max-w-3xl p-8">
       <h2 className="mb-1 text-lg font-semibold text-text">Voices</h2>
       <p className="mb-6 text-sm text-text-2">
-        Only English voices are wired up for synthesis right now — the rest are catalogued for
-        upcoming milestones. See PLAN.md for why.
+        English, Polish, German, and Chinese are wired up for rendering — other languages are
+        catalogued (and previewable here) but not yet routed to a render.
       </p>
 
       {error && <p className="mb-4 text-sm text-danger">{error}</p>}
@@ -65,7 +69,9 @@ export default function Voices() {
               <div className="mb-2 flex items-center gap-2">
                 <h3 className="text-sm font-medium text-text">{language}</h3>
                 <Badge>{list.length} voices</Badge>
-                {language !== 'en' && <Badge tone="warn">preview only, not usable yet</Badge>}
+                {!SUPPORTED_LANGUAGES.has(language) && (
+                  <Badge tone="warn">preview only, not usable yet</Badge>
+                )}
               </div>
               <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
                 {list.map((v) => (

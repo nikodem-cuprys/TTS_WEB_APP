@@ -24,6 +24,8 @@ dependencies = [
     "num2words>=0.5",
     "pysbd>=0.3",
     "numpy>=2.0",
+    "piper-tts>=1.8",
+    "misaki[zh]>=0.9",
 ]
 
 [project.optional-dependencies]

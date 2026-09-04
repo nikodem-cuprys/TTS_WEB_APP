@@ -38,6 +38,14 @@ export type Block = {
   text: string
 }
 
+export type LexiconEntry = {
+  id: number
+  pattern: string
+  replacement: string
+  is_regex: boolean
+  enabled: boolean
+}
+
 export type ChapterDetail = {
   id: number
   index: number
@@ -142,6 +150,15 @@ export function getChapter(bookId: number, chapterId: number) {
   return request<ChapterDetail>(`/api/books/${bookId}/chapters/${chapterId}`)
 }
 
+/** Mainly for overriding a wrong auto-detected language ([M4-5]). */
+export function updateBook(bookId: number, patch: { language?: string; title?: string; author?: string }) {
+  return request<BookDetail>(`/api/books/${bookId}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(patch),
+  })
+}
+
 export function updateChapter(bookId: number, chapterId: number, patch: { title?: string; enabled?: boolean }) {
   return request<ChapterDetail>(`/api/books/${bookId}/chapters/${chapterId}`, {
     method: 'PATCH',
@@ -179,6 +196,39 @@ export function uploadBook(file: File, onProgress?: (fraction: number) => void):
     form.append('file', file)
     xhr.send(form)
   })
+}
+
+// --- lexicon --------------------------------------------------------------------
+
+export function listLexicon(bookId: number) {
+  return request<LexiconEntry[]>(`/api/books/${bookId}/lexicon`)
+}
+
+export function createLexiconEntry(
+  bookId: number,
+  entry: { pattern: string; replacement: string; is_regex?: boolean; enabled?: boolean },
+) {
+  return request<LexiconEntry>(`/api/books/${bookId}/lexicon`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(entry),
+  })
+}
+
+export function updateLexiconEntry(
+  bookId: number,
+  entryId: number,
+  patch: Partial<{ pattern: string; replacement: string; is_regex: boolean; enabled: boolean }>,
+) {
+  return request<LexiconEntry>(`/api/books/${bookId}/lexicon/${entryId}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(patch),
+  })
+}
+
+export function deleteLexiconEntry(bookId: number, entryId: number) {
+  return request<void>(`/api/books/${bookId}/lexicon/${entryId}`, { method: 'DELETE' })
 }
 
 // --- voices ---------------------------------------------------------------------

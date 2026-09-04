@@ -87,8 +87,9 @@ export default function Render() {
 
         {unsupportedLanguage ? (
           <p className="text-sm text-warn">
-            No voice is available yet for language "{book.language}". English is the only language
-            supported so far — Polish, German, and Chinese land in a later milestone.
+            No voice is available yet for language "{book.language}". English, Polish, German, and
+            Chinese are supported — if this book is actually one of those, fix the language on the
+            book's page first.
           </p>
         ) : (
           <>

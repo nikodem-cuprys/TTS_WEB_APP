@@ -17,43 +17,13 @@ M5 Publishing → M6 Quality & perf → L Later
 |---|---|---|
 | **G1** ✅ | An EPUB becomes an English MP3 audiobook from the CLI | `M2-10` |
 | **G2** ✅ | The whole flow works in the browser, no CLI needed | `M3-5` |
-| **G3** | All four languages render at acceptable quality | `M4-4` |
+| **G3** ✅ | All four languages render at acceptable quality | `M4-4` |
 | **G4** | Output is upload-ready: M4B + MP4 + SRT + timestamps | `M5-9` |
 | **G5** | Measured end-to-end RTF < 1.0, listening pass clean | `M6-2` |
 
 ---
 
 ## 📋 Backlog
-
-### M5 — Publishing
-
-- **[M5-1] M4B chaptered export** — M · M2-8
-  ffmpeg metadata chapter file, cover, tags.
-  ✅ Chapter markers are navigable in a real audiobook player.
-
-- **[M5-2] Opus / FLAC / WAV exports** — S · M2-8
-
-- **[M5-3] MP4 static-cover render** — M · M2-8
-  Cover + audio, `-tune stillimage`, low input fps.
-  ✅ A 10-hour book encodes in minutes, not hours, and stays reasonably small.
-
-- **[M5-4] MP4 waveform + Ken Burns styles** — M · M5-3
-  Green-tinted `showwaves` over the cover; slow `zoompan` alternative.
-
-- **[M5-5] Generated cover art** — S · M5-3
-  Pillow fallback cover in the dark/green theme with title + author.
-
-- **[M5-6] SRT / VTT subtitles** — S · M2-7
-  ⭐ Free and perfectly aligned — derived from known per-chunk durations, no forced alignment.
-
-- **[M5-7] YouTube chapter timestamps + description** — S · M2-7
-  `00:00 Chapter 1` block, ready to paste.
-
-- **[M5-8] Part splitting under 12 h** — M · M5-3
-  Chapter-aligned splits at a configurable limit (default 11 h 45 m), consistent part naming.
-
-- **[M5-9] 🎯 G4 — Exports API + download UI** — S · M5-1…M5-8
-  ✅ Every artifact for a finished book is downloadable from one panel.
 
 ### M6 — Quality & performance
 
@@ -95,33 +65,35 @@ M5 Publishing → M6 Quality & perf → L Later
 
 ## ✅ Ready
 
-### M4 — Multi-language
+### M5 — Publishing
 
-- **[M4-1] Piper ONNX engine** — M · M2-1
-  Wrap `piper1-gpl` / onnxruntime over `.onnx` + `.onnx.json` voice pairs, behind the same protocol.
+- **[M5-1] M4B chaptered export** — M · M2-8
+  ffmpeg metadata chapter file, cover, tags.
+  ✅ Chapter markers are navigable in a real audiobook player.
 
-- **[M4-2] Polish normalizer + voices** — L · M4-1, M2-3
-  ⚠️ `num2words(lang="pl")` **declension** is the hard part — Polish numerals inflect by case and
-  gender. Abbreviations `np. / itd. / tzn. / m.in. / ul.`. Voices `pl_PL-gosia-medium`,
-  `pl_PL-darkman-medium`.
-  ✅ Listening pass on 3 minutes of Polish prose.
+- **[M5-2] Opus / FLAC / WAV exports** — S · M2-8
 
-- **[M4-3] German normalizer + voices** — M · M4-1
-  `z.B. / bzw. / Nr. / usw.`, ordinal periods (`3. Kapitel`), compound handling.
-  Voice `de_DE-thorsten-high`.
-  ✅ Listening pass on 3 minutes of German prose.
+- **[M5-3] MP4 static-cover render** — M · M2-8
+  Cover + audio, `-tune stillimage`, low input fps.
+  ✅ A 10-hour book encodes in minutes, not hours, and stays reasonably small.
 
-- **[M4-4] 🎯 G3 — Chinese support** — L · M2-2
-  Kokoro `zf_/zm_` voices via `misaki[zh]` G2P. **No space tokenisation**; terminators are
-  `。！？；`; chunk packing counts characters, not words. Numbers read as Chinese numerals.
-  ✅ Listening pass on 3 minutes of Chinese prose.
+- **[M5-4] MP4 waveform + Ken Burns styles** — M · M5-3
+  Green-tinted `showwaves` over the cover; slow `zoompan` alternative.
 
-- **[M4-5] Language → engine routing + override UI** — S · M4-1
-  Auto-route EN/ZH → Kokoro, PL/DE → Piper, with an explicit manual override.
+- **[M5-5] Generated cover art** — S · M5-3
+  Pillow fallback cover in the dark/green theme with title + author.
 
-- **[M4-6] Pronunciation lexicon + UI** — M · M2-5
-  Per-book `pattern → replacement` table (literal or regex) for names and invented words.
-  ✅ Editing an entry invalidates **only** the chunks that contain it.
+- **[M5-6] SRT / VTT subtitles** — S · M2-7
+  ⭐ Free and perfectly aligned — derived from known per-chunk durations, no forced alignment.
+
+- **[M5-7] YouTube chapter timestamps + description** — S · M2-7
+  `00:00 Chapter 1` block, ready to paste.
+
+- **[M5-8] Part splitting under 12 h** — M · M5-3
+  Chapter-aligned splits at a configurable limit (default 11 h 45 m), consistent part naming.
+
+- **[M5-9] 🎯 G4 — Exports API + download UI** — S · M5-1…M5-8
+  ✅ Every artifact for a finished book is downloadable from one panel.
 
 ---
 
@@ -138,6 +110,95 @@ M5 Publishing → M6 Quality & perf → L Later
 ---
 
 ## ✔️ Done
+
+### M4 — Multi-language (all 6 cards) — 🎯 G3 achieved
+
+Verified end-to-end for all three new languages, not just their normalizer unit tests: a
+parametrized integration test renders a real small EPUB through the *entire* pipeline (real
+normalizer → real engine → real ffmpeg mastering) for Polish, German, and Chinese, matching how
+G1 proved English in M2. All three pass. Also drove a real Polish render through the actual
+browser GUI end to end (upload → language badge already correctly "pl" → voice picker
+auto-filtered to the 2 Polish voices → live SSE progress → a real downloadable MP3, verified via
+`ffprobe`), and separately verified the two other new GUI pieces (the language-override selector
+and the lexicon editor) in the same session.
+
+**Chinese needed a real fix, not a workaround.** M2 had already found that this `kokoro-onnx`
+package's built-in phonemizer produces garbage for Chinese (English-fallback phonemes wrapped in
+`(en)...(cmn)` markers). The fix: phonemize with `misaki.zh.ZHG2P` (the actual G2P frontend Kokoro
+was trained with, already a transitive dependency once `misaki[zh]` was added) and feed Kokoro the
+phonemes directly via `is_phonemes=True`, bypassing its broken built-in path. Verified concretely,
+not just "it sounds okay": `tokenizer.known(phonemes) == phonemes` — **100%** of misaki's output
+phonemes exist in Kokoro's vocabulary, vs. the old path's near-total loss.
+
+**`num2words` has no Chinese backend at all** (`NotImplementedError`) — found `cn2an` already
+installed transitively via `misaki[zh]` and used its `an2cn()` instead. Its `"direct"` mode gives
+the correct **digit-by-digit** year reading Chinese actually uses ("2024" → "二零二四"), which
+`"low"` (cardinal) mode does not.
+
+**Two real, reproducible bugs found and fixed via direct output inspection, each now covered by a
+regression test** (beyond the declension limitations below, which are accepted-by-design, not
+bugs):
+1. **Chinese year regex matched a 4-digit substring of a longer number.** "12345" became
+   "一二三四" + "五" (digit-by-digit garbage) instead of the correct cardinal reading, because the
+   year pattern had no digit-adjacency check. The fix generalizes beyond this bug: the other
+   normalizers bound their year regex with `\b`, but Python's `re` treats CJK characters as `\w`,
+   so `\b` between a digit run and a following Chinese character (e.g. "1939年") **never matches at
+   all** — a `\b`-based version of the Chinese year regex would have silently matched no real year
+   ever. `(?<!\d)...(?!\d)` is the correct tool here, not `\b`.
+2. **German `€` amounts were silently dropped**, and `$`-prefixed amounts in German text produced
+   garbled output like `"Cent.sechsundfünfzig."`. Root causes: a trailing `\b` right after the `€`
+   symbol can never match (`\b` needs a `\w`/`\W` transition, and symbol-then-punctuation is
+   `\W`-to-`\W`), and the `$`/`£` handler assumed German-native comma-decimal formatting instead of
+   the English-style formatting `$` amounts conventionally keep even inside German text.
+
+**Declension is out of scope for Polish and German, by design, not oversight** — documented
+explicitly in both modules' docstrings. Polish numerals and German ordinal adjectives both decline
+by grammatical case and gender/animacy ("dwóch mężczyzn" vs. "dwie kobiety"; "drittes Kapitel" vs.
+"dritten Mai"), which needs knowing what noun a number modifies and parsing sentence-level
+grammatical case — a morphological-analysis problem, not a text-normalizer one. Both always emit
+one citation form (verified `num2words`' German backend has no gender/case parameter at all).
+Intelligible in every sentence, grammatically the "wrong" ending in some — the same tradeoff
+essentially every rule-based normalizer for these languages makes.
+
+**The lexicon's core promise — editing one entry only invalidates the chunks it affects — holds
+because of *when* substitution happens, not a special cache-versioning mechanism.**
+`apply_lexicon()` runs on each block's text *before* normalization and segmentation, so a chunk
+whose text never contained the edited pattern comes out byte-identical both times, and its cache
+key (a hash of its exact final text) is therefore untouched. Verified concretely: rendered a
+2-paragraph chapter, added a lexicon entry affecting only one paragraph, re-rendered, and confirmed
+the affected paragraph's cache key changed while the unaffected paragraph's — and an unrelated
+chapter heading's — cache key and underlying cached file path were byte-identical across both
+runs (a real cache hit, not just "didn't error").
+
+Also closed a real validation gap while wiring routing: nothing previously stopped a request from
+pairing a book with one engine's voice from a different engine (e.g. a Piper voice on an
+English/Kokoro-routed book), which would have failed deep inside a worker instead of at the API
+boundary. `POST /api/books/{id}/jobs` now checks `voice.engine == engine_for_language(book.language).id`
+before creating the job.
+
+172 pytest cases total (up from 100 at the start of M4), including the three-language
+parametrized pipeline test and the lexicon cache-scoping test.
+
+- **[M4-1] Piper ONNX engine** — M · M2-1 — voice metadata read straight from each voice's
+  `.onnx.json` sidecar (sample_rate, quality, language) without loading the ONNX session, so
+  `/api/voices` stays fast; verified real synthesis for both Polish voices and the German voice.
+- **[M4-2] Polish normalizer + voices** — L · M4-1, M2-3 — 16 tests; fixed a real capitalization
+  bug along the way ("Np." was collapsing to lowercase "na przykład" mid-sentence).
+- **[M4-3] German normalizer + voices** — M · M4-1 — 17 tests; fixed the `€`-boundary and
+  `$`-formatting bugs above; ordinal-period conversion ("3. Kapitel") deliberately scoped to a
+  known word list (Kapitel/Teil/Band/Akt/Jahrhundert/month names) to avoid misreading an ordinary
+  sentence-ending number followed by a new capitalized sentence.
+- **[M4-4] 🎯 G3 — Chinese support** — L · M2-2 — 12 normalizer tests + dedicated Kokoro/misaki
+  integration tests (including the 100%-vocabulary-coverage assertion above); `segment.py` gained a
+  language-aware chunk joiner (`""` for zh instead of `" "`) so packed chunks don't get an ASCII
+  space foreign to the script.
+- **[M4-5] Language → engine routing + override UI** — S · M4-1 — `LANGUAGE_ROUTING` now covers
+  all four languages; "override" implemented as `PATCH /api/books/{id}` for the language field
+  (simpler and more durable than a per-render override — fixing a wrong auto-detected language
+  once fixes every future render) plus the voice/engine mismatch validation above.
+- **[M4-6] Pronunciation lexicon + UI** — M · M2-5 — cache-scoping behavior verified end-to-end
+  (see above); UI is a simple pattern → replacement list with an enabled toggle and regex option
+  on the Book page.
 
 ### M3 — GUI (all 7 cards) — 🎯 G2 achieved
 
@@ -305,10 +366,14 @@ grey those formats out up front. `@app.on_event` was migrated to a `lifespan` ha
 | ONNX Runtime on CPU, **no PyTorch/CUDA** | 1050 Ti is Pascal/sm_61 — dropped by PyTorch ≥2.8; 4 GB VRAM can't run the big models at 1:1 anyway. The 5600X can. |
 | Kokoro (EN, ZH) + Piper (PL, DE) | No single local model covers all four well at 1:1. Kokoro has no Polish or German; Piper covers everything but is flatter. |
 | Speed is solved; **quality is the constraint** | Measured RTF ~0.30 (4 workers × 2 intra-op threads, empirically swept — beat 1×6, 6×2, and 8×1). Complexity budget goes to text normalization and mastering, not inference tuning. |
-| Kokoro's Chinese voices are catalogued but **not yet usable** | This `kokoro-onnx` package phonemizes via bare espeak-ng, not `misaki` — verified `lang="cmn"` silently mis-phonemizes. Real Mandarin support needs a G2P solution in [M4-4], not a lang tag. |
 | `Document` is the only intermediate | Keeps format support open-ended — new parsers need no downstream changes. |
 | Content-hashed chunk cache | Makes 10-hour renders resumable and edits incremental. |
 | SQLite + in-process pool, no Redis/Celery | Single-user local app; a broker is pure overhead. |
 | Local-only, no accounts, file export only | Confirmed with the user. YouTube upload stays manual. |
 | Every datetime field must round-trip through `util.utc_iso()` | SQLite drops tzinfo on read; a bare `.isoformat()` on the resulting naive value has no UTC offset, which JS's `Date` parser misreads as local time. Discovered in M3; applies to any future datetime field (M5's export timestamps, etc). |
 | Inline-playable media needs its own endpoint, separate from download | `FileResponse(..., filename=...)` sets `Content-Disposition: attachment`, which stops an `<audio>`/`<video>` element from loading it inline. M5's MP4 preview will need the same `/stream`-vs-`/download` split M3 built for the job's MP3. |
+| Chinese synthesis: phonemize with `misaki.zh.ZHG2P`, feed Kokoro `is_phonemes=True` | Resolved in [M4-4]. Kokoro's own built-in phonemizer is bare espeak-ng, not the `misaki` frontend the model was trained with; verified 100% of misaki's phonemes exist in Kokoro's vocabulary vs. near-total loss the old way. |
+| Chinese numbers: use `cn2an`, not `num2words` | `num2words(lang="zh")` raises `NotImplementedError` — no Chinese backend exists at all. `cn2an` (already transitive via `misaki[zh]`) covers it; its `"direct"` mode is what gives the correct digit-by-digit year reading. |
+| `\b` doesn't work at a digit/CJK or digit/symbol boundary | Python's `re` treats CJK characters as `\w`, so `\b` never fires between a digit run and a following Chinese character — use `(?<!\d)...(?!\d)` for CJK number boundaries instead. Separately, `\b` right after a symbol like `€` can also never match (symbol-then-punctuation is `\W`-to-`\W`) — found via two independent bugs in [M4-4]/[M4-3]. |
+| Polish/German numeral declension is out of scope, by design | Both decline by grammatical case and gender/animacy — correct agreement needs knowing what noun a number modifies and parsing sentence-level case, a morphological-analysis problem beyond a text normalizer. Both emit one citation form; documented explicitly in each module's docstring, not silently accepted. |
+| Lexicon substitution runs before normalization/segmentation | Makes "editing an entry invalidates only the chunks it affects" true for free — a chunk's cache key is a hash of its exact final text, so an unaffected chunk's key (and cached audio) never changes. No separate cache-versioning scheme needed. Verified end-to-end in [M4-6]. |

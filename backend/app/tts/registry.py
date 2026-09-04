@@ -12,12 +12,13 @@ from functools import lru_cache
 from ..config import get_settings
 from .base import TTSEngine, VoiceInfo
 from .kokoro import KokoroEngine
+from .piper import PiperEngine, default_voice_paths
 
-#: Only "en" is wired up in M2. M4 adds "pl"/"de" -> piper and "zh" -> kokoro once
-#: Chinese phonemization is actually solved and listening-tested (see kokoro.py's
-#: synth() docstring on why "zh" isn't claimed yet).
 LANGUAGE_ROUTING: dict[str, str] = {
     "en": "kokoro",
+    "zh": "kokoro",  # real Mandarin G2P via misaki, see kokoro.py's synth() ([M4-4])
+    "pl": "piper",
+    "de": "piper",
 }
 
 
@@ -31,12 +32,14 @@ class VoiceNotFoundError(Exception):
 
 @lru_cache
 def get_engine(engine_id: str) -> TTSEngine:
+    settings = get_settings()
     if engine_id == "kokoro":
-        settings = get_settings()
         return KokoroEngine(
             settings.models_dir / "kokoro" / "kokoro-v1.0.onnx",
             settings.models_dir / "kokoro" / "voices-v1.0.bin",
         )
+    if engine_id == "piper":
+        return PiperEngine(default_voice_paths(settings.models_dir))
     raise ValueError(f"unknown engine id: {engine_id!r}")
 
 

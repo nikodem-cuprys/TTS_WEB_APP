@@ -3,11 +3,14 @@ import { Link, useParams } from 'react-router-dom'
 import Button from '../components/ui/Button'
 import Card from '../components/ui/Card'
 import Badge from '../components/ui/Badge'
+import Select from '../components/ui/Select'
 import Spinner from '../components/ui/Spinner'
+import LexiconEditor from '../components/LexiconEditor'
 import {
   getBook,
   getChapter,
   updateBlock,
+  updateBook,
   updateChapter,
   type BookDetail,
   type ChapterDetail,
@@ -15,6 +18,44 @@ import {
 } from '../lib/api'
 
 const WORDS_PER_MINUTE = 150
+
+// The only languages actually routed to an engine ([M4-5]) — matches
+// backend/app/tts/registry.py's LANGUAGE_ROUTING.
+const SUPPORTED_LANGUAGES = ['en', 'pl', 'de', 'zh']
+
+function LanguageSelector({ bookId, language, onChange }: { bookId: number; language: string; onChange: (lang: string) => void }) {
+  const [saving, setSaving] = useState(false)
+  const options = SUPPORTED_LANGUAGES.includes(language) ? SUPPORTED_LANGUAGES : [language, ...SUPPORTED_LANGUAGES]
+
+  const handleChange = async (next: string) => {
+    setSaving(true)
+    try {
+      await updateBook(bookId, { language: next })
+      onChange(next)
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <span className="inline-flex items-center gap-1">
+      <Select
+        value={language}
+        onChange={(e) => handleChange(e.target.value)}
+        disabled={saving}
+        className="!py-0.5 !text-xs"
+        title="Override the detected language if it's wrong"
+      >
+        {options.map((lang) => (
+          <option key={lang} value={lang}>
+            {lang}
+          </option>
+        ))}
+      </Select>
+      {saving && <Spinner />}
+    </span>
+  )
+}
 
 function wordCount(text: string): number {
   const trimmed = text.trim()
@@ -220,7 +261,11 @@ export default function Book() {
           <h2 className="text-lg font-semibold text-text">{book.title}</h2>
           {book.author && <p className="text-sm text-text-2">{book.author}</p>}
           <div className="mt-2 flex items-center gap-1.5">
-            <Badge>{book.language}</Badge>
+            <LanguageSelector
+              bookId={book.id}
+              language={book.language}
+              onChange={(language) => setBook((prev) => (prev ? { ...prev, language } : prev))}
+            />
             <Badge>{book.source_format}</Badge>
             <Badge>
               {enabledCount}/{book.chapters.length} chapters enabled
@@ -232,7 +277,7 @@ export default function Book() {
         </Link>
       </div>
 
-      <div className="flex flex-col gap-2">
+      <div className="mb-6 flex flex-col gap-2">
         {book.chapters.map((chapter) => (
           <ChapterRow
             key={chapter.id}
@@ -242,6 +287,8 @@ export default function Book() {
           />
         ))}
       </div>
+
+      <LexiconEditor bookId={book.id} />
     </div>
   )
 }

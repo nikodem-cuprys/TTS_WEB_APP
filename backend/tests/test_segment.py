@@ -46,3 +46,23 @@ def test_segment_text_respects_max_chars_with_multiple_sentences():
     chunks = segment_text(text, max_chars=100)
     assert len(chunks) > 1
     assert all(len(c) <= 100 or c.count(".") <= 1 for c in chunks)  # oversized only for single sentences
+
+
+def test_chinese_sentences_split_on_full_width_terminators():
+    text = "你好，世界。这是第一句话！这是第二句话？"
+    assert split_sentences(text, language="zh") == ["你好，世界。", "这是第一句话！", "这是第二句话？"]
+
+
+def test_chinese_chunks_join_without_a_space():
+    # Chinese doesn't separate sentences with spaces the way English does — packing
+    # two sentences into one chunk with pack_chunks' default " " joiner would insert
+    # an ASCII space foreign to the script; segment_text must use "" for zh instead.
+    text = "你好，世界。这是第一句话！"
+    chunks = segment_text(text, language="zh", max_chars=1000)
+    assert chunks == ["你好，世界。这是第一句话！"]
+    assert " " not in chunks[0]
+
+
+def test_pack_chunks_custom_joiner():
+    chunks = pack_chunks(["你好。", "再见。"], max_chars=1000, joiner="")
+    assert chunks == ["你好。再见。"]

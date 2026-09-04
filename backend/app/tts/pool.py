@@ -22,6 +22,7 @@ from ..pipeline import cache
 from . import kokoro
 from .base import TTSEngine
 from .kokoro import KokoroEngine
+from .piper import PiperEngine, default_voice_paths
 
 DEFAULT_WORKERS = 4
 DEFAULT_INTRA_OP_THREADS = kokoro.DEFAULT_INTRA_OP_THREADS
@@ -56,13 +57,17 @@ _worker_intra_op_threads: int = DEFAULT_INTRA_OP_THREADS
 
 
 def _build_engine(engine_id: str, intra_op_threads: int) -> TTSEngine:
+    settings = get_settings()
     if engine_id == "kokoro":
-        settings = get_settings()
         return KokoroEngine(
             settings.models_dir / "kokoro" / "kokoro-v1.0.onnx",
             settings.models_dir / "kokoro" / "voices-v1.0.bin",
             intra_op_threads=intra_op_threads,
         )
+    if engine_id == "piper":
+        # Piper has no equivalent thread-count knob exposed by piper-tts; ONNX
+        # Runtime's own defaults apply within each worker process.
+        return PiperEngine(default_voice_paths(settings.models_dir))
     raise ValueError(f"unknown engine id: {engine_id!r}")
 
 

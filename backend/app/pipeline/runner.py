@@ -30,8 +30,9 @@ from ..audio import loudness
 from ..audio.encode import encode_mp3, write_wav
 from ..audio.loudness import normalize_loudness
 from ..config import get_settings
-from ..models import Book, Job, JobStage, JobStatus, Segment
+from ..models import Book, Job, JobStage, JobStatus, LexiconEntry, Segment
 from ..pipeline import cache
+from ..text.lexicon import apply_lexicon
 from ..text.normalize import get_version as normalizer_version
 from ..text.normalize import normalize
 from ..text.segment import segment_text
@@ -66,7 +67,7 @@ def _safe_filename(name: str) -> str:
     return _SAFE_NAME_RE.sub("_", name).strip() or "book"
 
 
-def _build_chunk_plan(chapters: list, language: str) -> list[_ChunkPlan]:
+def _build_chunk_plan(chapters: list, language: str, lexicon_entries: list[LexiconEntry]) -> list[_ChunkPlan]:
     """Flattens every enabled chapter's blocks into an ordered chunk plan, deciding
     each chunk's trailing pause from its position: mid-block chunks get the shortest
     (sentence) pause, a block's last chunk gets the paragraph pause unless it's also
@@ -79,7 +80,8 @@ def _build_chunk_plan(chapters: list, language: str) -> list[_ChunkPlan]:
         blocks = sorted(chapter.blocks, key=lambda b: b.index)
         for block_i, block in enumerate(blocks):
             is_last_block = block_i == len(blocks) - 1
-            normalized = normalize(block.text, language)
+            with_lexicon = apply_lexicon(block.text, lexicon_entries)
+            normalized = normalize(with_lexicon, language)
             chunks = segment_text(normalized, language)
             for chunk_i, chunk_text in enumerate(chunks):
                 is_last_chunk = chunk_i == len(chunks) - 1
@@ -173,7 +175,8 @@ def run_job(
         if not chapters:
             raise PipelineError(f"book {book.id} has no enabled chapters")
 
-        plan = _build_chunk_plan(chapters, book.language)
+        # apply_lexicon() itself skips disabled entries; no need to filter here too.
+        plan = _build_chunk_plan(chapters, book.language, book.lexicon_entries)
         norm_version = normalizer_version(book.language)
 
         segments: list[Segment] = []

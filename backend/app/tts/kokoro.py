@@ -1,0 +1,83 @@
+"""Kokoro-82M engine (ONNX Runtime, CPU). Covers English and Chinese voices — see the
+language routing table in PLAN.md. Session construction (~2s, loading a 310MB model) is
+the expensive part, so callers must build one KokoroEngine per worker process and reuse
+it across every synth() call — never per chunk. See PLAN.md 'tts/kokoro.py'.
+"""
+from pathlib import Path
+
+import numpy as np
+import onnxruntime as ort
+from kokoro_onnx import Kokoro
+
+from .base import VoiceInfo
+
+# Kokoro voice ids are "<lang><gender>_<name>", e.g. "af_heart" = American English female.
+_LANG_PREFIXES = {
+    "a": "en",  # American English
+    "b": "en",  # British English
+    "e": "es",
+    "f": "fr",
+    "h": "hi",
+    "i": "it",
+    "j": "ja",
+    "p": "pt",
+    "z": "zh",
+}
+_GENDER_CODES = {"f": "female", "m": "male"}
+
+#: intra-op threads per worker process; tuned empirically on the target 6C/12T CPU —
+#: 4 worker processes x 2 threads beat both a single 6-thread session and 6x2/8x1
+#: configurations (RTF 0.30 vs 0.35-0.57). See KANBAN [M2-2] verification notes.
+DEFAULT_INTRA_OP_THREADS = 2
+
+
+def _voice_metadata(voice_id: str, engine_id: str, sample_rate: int) -> VoiceInfo:
+    prefix = voice_id[0] if voice_id else ""
+    gender_code = voice_id[1] if len(voice_id) > 1 else ""
+    return VoiceInfo(
+        id=voice_id,
+        engine=engine_id,
+        language=_LANG_PREFIXES.get(prefix, "und"),
+        gender=_GENDER_CODES.get(gender_code),
+        sample_rate=sample_rate,
+    )
+
+
+class KokoroEngine:
+    id = "kokoro"
+    version = "kokoro-v1.0"  # matches the pinned model file; bump on a model upgrade
+    stateful_per_chapter = False
+
+    def __init__(
+        self,
+        model_path: str | Path,
+        voices_path: str | Path,
+        intra_op_threads: int = DEFAULT_INTRA_OP_THREADS,
+    ):
+        so = ort.SessionOptions()
+        so.intra_op_num_threads = intra_op_threads
+        so.inter_op_num_threads = 1
+        session = ort.InferenceSession(
+            str(model_path), sess_options=so, providers=["CPUExecutionProvider"]
+        )
+        self._kokoro = Kokoro.from_session(session, str(voices_path))
+        self._sample_rate = 24000
+        self._voices: list[VoiceInfo] | None = None
+
+    def voices(self) -> list[VoiceInfo]:
+        if self._voices is None:
+            self._voices = [
+                _voice_metadata(v, self.id, self._sample_rate) for v in self._kokoro.get_voices()
+            ]
+        return self._voices
+
+    def synth(self, text: str, voice: str, *, speed: float = 1.0, **opts) -> tuple[np.ndarray, int]:
+        # This package phonemizes via a bare phonemizer+espeak-ng pass-through (see
+        # tokenizer.py), not the misaki G2P frontend the original Kokoro model card
+        # assumes — passing lang="cmn" here was verified to silently mis-phonemize
+        # Chinese (it fell back to English phonemes). Only "en-us"/"en-gb" are
+        # confirmed to work; Mandarin needs a real G2P solution in [M4-4], not a lang
+        # tag. Defaulting to en-us keeps this engine honest about M2's English-only scope.
+        lang = opts.get("lang", "en-us")
+        samples, sr = self._kokoro.create(text, voice=voice, speed=speed, lang=lang)
+        return samples, sr

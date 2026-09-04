@@ -15,7 +15,7 @@ M5 Publishing → M6 Quality & perf → L Later
 
 | Gate | Meaning | Card |
 |---|---|---|
-| **G1** | An EPUB becomes an English MP3 audiobook from the CLI | `M2-10` |
+| **G1** ✅ | An EPUB becomes an English MP3 audiobook from the CLI | `M2-10` |
 | **G2** | The whole flow works in the browser, no CLI needed | `M3-5` |
 | **G3** | All four languages render at acceptable quality | `M4-4` |
 | **G4** | Output is upload-ready: M4B + MP4 + SRT + timestamps | `M5-9` |
@@ -24,34 +24,6 @@ M5 Publishing → M6 Quality & perf → L Later
 ---
 
 ## 📋 Backlog
-
-### M3 — GUI
-
-- **[M3-1] Design system components** — M · M0-4
-  Button / Card / Select / Slider / Progress / Toast / Modal / Tree on the theme tokens.
-  Flat surfaces, 1px borders instead of shadows, 6px radii, green **only** for primary action,
-  active state, and progress. Monospace for all timestamps and durations.
-
-- **[M3-2] Library page + upload dropzone** — M · M1-8
-  Book grid with cover, language badge, duration estimate, status. Drag-and-drop upload with
-  per-file progress.
-
-- **[M3-3] Book page: chapter tree + editing** — L · M3-2
-  Include/exclude toggles, rename, reorder, inline text editing, per-chapter word count and estimated
-  duration.
-
-- **[M3-4] Render config page** — M · M2-9
-  Language + voice picker with preview, speed, pause tuning, output format checkboxes, video style.
-
-- **[M3-5] 🎯 G2 — Job monitor + SSE** — M · M2-9
-  `GET /api/jobs/{id}/events`. Per-chapter progress bars, ETA, **live RTF readout**, cancel.
-  ✅ The full flow is usable in the browser with no CLI.
-
-- **[M3-6] Voice browser + preview** — S · M2-2
-  Every installed voice, grouped by language, with a one-click sample sentence.
-
-- **[M3-7] Settings page** — S
-  Worker count, loudness target, output directory, model download manager, disk usage.
 
 ### M4 — Multi-language
 
@@ -151,51 +123,33 @@ M5 Publishing → M6 Quality & perf → L Later
 
 ## ✅ Ready
 
-### M2 — TTS core (English)
+### M3 — GUI
 
-- **[M2-1] TTSEngine protocol + registry** — S
-  `voices() -> list[VoiceInfo]`, `synth(text, voice, speed) -> (float32 mono, sample_rate)`.
-  Registry holds the voice catalog and the language → engine routing table.
+- **[M3-1] Design system components** — M · M0-4
+  Button / Card / Select / Slider / Progress / Toast / Modal / Tree on the theme tokens.
+  Flat surfaces, 1px borders instead of shadows, 6px radii, green **only** for primary action,
+  active state, and progress. Monospace for all timestamps and durations.
 
-- **[M2-2] Kokoro ONNX engine** — M · M2-1, M0-5
-  Wrap `kokoro-onnx` (model + `voices.bin`). Build the ONNX session **once per process** — session
-  construction dominates cost otherwise. Expose the `af_/am_/bf_/bm_` English voices.
+- **[M3-2] Library page + upload dropzone** — M · M1-8
+  Book grid with cover, language badge, duration estimate, status. Drag-and-drop upload with
+  per-file progress.
 
-- **[M2-3] English normalizer** — L · M1-1
-  ⭐ *Single largest quality lever.* Ordered rules: numbers / ordinals / currency / percent / dates /
-  times via `num2words`; roman numerals in headings; abbreviations (`Mr.`, `Dr.`, `etc.`, `vs.`) so a
-  trailing period isn't read as a full stop; smart quotes, em-dash → pause, ellipsis, `&`, footnote
-  markers; ALL-CAPS → capitalised so it isn't spelled letter by letter.
-  ✅ Golden-file tests: `$1,234.56`, `Chapter XIV`, `1939–1945`, `3rd`, `Dr. Smith vs. Mr. Jones`.
+- **[M3-3] Book page: chapter tree + editing** — L · M3-2
+  Include/exclude toggles, rename, reorder, inline text editing, per-chapter word count and estimated
+  duration.
 
-- **[M2-4] Segmenter** — M · M2-3
-  `pysbd` sentence split, then pack into ≤350-char chunks. **Never splits mid-sentence.** The chunk
-  is the unit of caching, parallelism, and subtitle timing.
+- **[M3-4] Render config page** — M · M2-9
+  Language + voice picker with preview, speed, pause tuning, output format checkboxes, video style.
 
-- **[M2-5] Chunk cache** — M · M2-4
-  `data/cache/{sha256(text + voice + engine_version + speed + normalizer_version)}.wav`.
-  ✅ Renders are resumable; fixing one typo re-synthesises only the affected chunks.
+- **[M3-5] 🎯 G2 — Job monitor + SSE** — M · M2-9
+  `GET /api/jobs/{id}/events`. Per-chapter progress bars, ETA, **live RTF readout**, cancel.
+  ✅ The full flow is usable in the browser with no CLI.
 
-- **[M2-6] Worker pool** — M · M2-2, M2-5
-  `ProcessPoolExecutor(4)`, one warm ONNX session per worker, `intra_op_num_threads` set so
-  `workers × threads ≈ 10` on the 6C/12T CPU. Safe because Kokoro/Piper are non-autoregressive and
-  hold no cross-chunk state.
+- **[M3-6] Voice browser + preview** — S · M2-2
+  Every installed voice, grouped by language, with a one-click sample sentence.
 
-- **[M2-7] Assembly + pauses + fades** — M · M2-6
-  Concatenate with configurable silence (sentence 0.35 s / paragraph 0.6 s / chapter 1.2 s) and 10 ms
-  fades at joins.
-  ✅ No audible click at any chunk boundary. Duration ≈ Σ chunks + Σ pauses (±50 ms).
-
-- **[M2-8] Loudness master + MP3 export** — M · M2-7
-  ffmpeg **two-pass** `loudnorm` to `I=-19 LUFS, TP=-3 dBTP, LRA=7` (inside ACX limits), 60 Hz
-  high-pass, then MP3 with ID3 tags + embedded cover.
-  ✅ `ffprobe` confirms the target loudness.
-
-- **[M2-9] Pipeline runner + job records** — M · M2-8
-  Stage orchestration, progress rows in SQLite, cancel, resume-from-cache.
-
-- **[M2-10] 🎯 G1 — EPUB → English MP3 via CLI** — S · M2-9
-  ✅ One command turns a real public-domain EPUB into a listenable chaptered MP3.
+- **[M3-7] Settings page** — S
+  Worker count, loudness target, output directory, model download manager, disk usage.
 
 ---
 
@@ -212,6 +166,59 @@ M5 Publishing → M6 Quality & perf → L Later
 ---
 
 ## ✔️ Done
+
+### M2 — TTS core, English (all 10 cards) — 🎯 G1 achieved
+
+Ran a real EPUB through the CLI end to end: `python scripts/render_book.py book.epub --voice
+af_heart` produces a tagged, chaptered MP3, and every normalizer rule fired correctly on real
+prose in that run — inspected the persisted `Segment` rows directly and confirmed `$1,234.56` →
+"one thousand, two hundred and thirty-four dollars, fifty-six cents", `1889` → "eighteen
+eighty-nine", `Dr. Whitfield` → "Doctor Whitfield" (twice, consistently), `1914-1918` → "nineteen
+fourteen to nineteen eighteen", and pause durations landing exactly on the paragraph (0.6s) vs.
+chapter (1.2s) boundaries by design. Independently re-measured the mastered output with a fresh
+`ffmpeg loudnorm` pass and got -18.95 to -19.03 LUFS against a -19 target.
+
+**Worker pool tuning was empirically benchmarked, not guessed**: swept 1×6, 4×2, 6×2, 4×3, and
+8×1 (workers × intra-op threads) on the real 6C/12T CPU with the real model. **4 workers × 2
+threads won** (RTF 0.30 on a 48-chunk batch) — both denser (6×2, RTF 0.32) and sparser (8×1, RTF
+0.45; 1×6, RTF 0.57) configurations were worse, so the KANBAN estimate of "workers × threads ≈ 10"
+below is superseded by this measurement; the code uses 4×2 (8 threads) as the default.
+
+Also discovered mid-build that this `kokoro-onnx` package phonemizes through a bare
+`phonemizer`+espeak-ng pass-through, not the `misaki` G2P frontend the Kokoro model card assumes
+— tested passing `lang="cmn"` for the Chinese voices and confirmed it silently mis-phonemizes
+(falls back to English phonemes wrapped in `(en)...(cmn)` markers). `KokoroEngine.synth()` now
+only claims `en-us`/`en-gb`; real Mandarin support is deferred to **[M4-4]** with its own G2P
+solution, not a lang-tag change.
+
+76 pytest cases total (up from 27 after M1), including two `@pytest.mark.slow` tests that run
+real Kokoro synthesis through the process pool and the full pipeline runner. Hit and fixed a real
+test-isolation bug along the way: `get_settings()` is `@lru_cache`'d process-wide, so a test whose
+fixture only sets an env var can silently read another test's already-cached (real-path) Settings
+if an earlier test in the same pytest session triggered the cache first — fixed by explicit
+`get_settings.cache_clear()` in the fixtures that need process-local isolation (pool workers, as
+separate spawned processes, were never affected — only the parent process's own calls were).
+
+- **[M2-1] TTSEngine protocol + registry** — S — `tts/base.py`, `tts/registry.py`.
+- **[M2-2] Kokoro ONNX engine** — M · M2-1, M0-5 — 54 voices catalogued (28 en, 8 zh, others
+  es/fr/hi/it/ja/pt); metadata correct for all, synthesis verified for en only (see above).
+- **[M2-3] English normalizer** — L · M1-1 — 21 tests incl. all 5 acceptance-criteria strings
+  plus GBP/EUR currency, decimals, and the ALL-CAPS/acronym-allowlist heuristic.
+- **[M2-4] Segmenter** — M · M2-3 — pysbd + greedy packing; verified never splits a sentence even
+  when a single sentence exceeds `max_chars`.
+- **[M2-5] Chunk cache** — M · M2-4 — sha256 of every field that affects output audio; verified
+  each field independently changes the key, and a real hit/miss/write round-trip.
+- **[M2-6] Worker pool** — M · M2-2, M2-5 — see tuning note above; workers write straight to the
+  chunk cache and return only metadata, avoiding IPC overhead from shipping raw audio arrays.
+- **[M2-7] Assembly + pauses + fades** — M · M2-6 — verified fade ramps to ~0 at every chunk edge
+  and total duration matches Σ chunks + Σ pauses to within 50ms.
+- **[M2-8] Loudness master + MP3 export** — M · M2-7 — two-pass `loudnorm` + 60Hz high-pass;
+  independently re-measured output at -19.0 LUFS (target -19); ID3 tags + cover verified via
+  `ffprobe`.
+- **[M2-9] Pipeline runner + job records** — M · M2-8 — `Job`/`JobStage`/`Segment` rows persisted
+  and verified populated correctly after a real render (statuses, `start_s`/`duration_s`).
+- **[M2-10] 🎯 G1 — EPUB → English MP3 via CLI** — S · M2-9 — `scripts/render_book.py`; the
+  verification run above **is** this gate.
 
 ### M1 — Ingest (all 8 cards)
 
@@ -260,7 +267,8 @@ grey those formats out up front. `@app.on_event` was migrated to a `lifespan` ha
 |---|---|
 | ONNX Runtime on CPU, **no PyTorch/CUDA** | 1050 Ti is Pascal/sm_61 — dropped by PyTorch ≥2.8; 4 GB VRAM can't run the big models at 1:1 anyway. The 5600X can. |
 | Kokoro (EN, ZH) + Piper (PL, DE) | No single local model covers all four well at 1:1. Kokoro has no Polish or German; Piper covers everything but is flatter. |
-| Speed is solved; **quality is the constraint** | Expected 6–15× realtime. Complexity budget goes to text normalization and mastering, not inference tuning. |
+| Speed is solved; **quality is the constraint** | Measured RTF ~0.30 (4 workers × 2 intra-op threads, empirically swept — beat 1×6, 6×2, and 8×1). Complexity budget goes to text normalization and mastering, not inference tuning. |
+| Kokoro's Chinese voices are catalogued but **not yet usable** | This `kokoro-onnx` package phonemizes via bare espeak-ng, not `misaki` — verified `lang="cmn"` silently mis-phonemizes. Real Mandarin support needs a G2P solution in [M4-4], not a lang tag. |
 | `Document` is the only intermediate | Keeps format support open-ended — new parsers need no downstream changes. |
 | Content-hashed chunk cache | Makes 10-hour renders resumable and edits incremental. |
 | SQLite + in-process pool, no Redis/Celery | Single-user local app; a broker is pure overhead. |

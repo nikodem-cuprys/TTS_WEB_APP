@@ -2,11 +2,17 @@
 (ebooklib normalizes both EPUB3 nav and EPUB2 NCX into book.toc), and the nav document
 itself is dropped rather than narrated. See PLAN.md 'ingest/base.py'.
 """
+import warnings
 from pathlib import Path
 
 import ebooklib
-from bs4 import BeautifulSoup
+from bs4 import BeautifulSoup, XMLParsedAsHTMLWarning
 from ebooklib import epub
+
+# EPUB content is XHTML, but real-world files are often not strictly well-formed XML
+# (unclosed tags, stray entities), so the tolerant HTML parser is the deliberate
+# choice here, not an oversight — silence bs4's suggestion to switch to an XML parser.
+warnings.filterwarnings("ignore", category=XMLParsedAsHTMLWarning)
 
 from ..models import BlockKind
 from .base import ParseError

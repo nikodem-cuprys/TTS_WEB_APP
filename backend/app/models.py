@@ -78,6 +78,7 @@ class Job(SQLModel, table=True):
     book: Book = Relationship(back_populates="jobs")
     stages: list["JobStage"] = Relationship(back_populates="job")
     segments: list["Segment"] = Relationship(back_populates="job")
+    artifacts: list["JobArtifact"] = Relationship(back_populates="job")
 
 
 class JobStage(SQLModel, table=True):
@@ -109,6 +110,18 @@ class Segment(SQLModel, table=True):
     status: JobStatus = JobStatus.queued
 
     job: Job = Relationship(back_populates="segments")
+
+
+class JobArtifact(SQLModel, table=True):
+    """One exported file produced by a finished job's export stage (mp3/m4b/opus/
+    flac/wav/srt/vtt) — a job can produce several, one per requested format."""
+
+    id: int | None = Field(default=None, primary_key=True)
+    job_id: int = Field(foreign_key="job.id")
+    format: str
+    path: str
+
+    job: Job = Relationship(back_populates="artifacts")
 
 
 class LexiconEntry(SQLModel, table=True):

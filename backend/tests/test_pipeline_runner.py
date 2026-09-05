@@ -4,14 +4,21 @@ milestone gate use, just against a small in-memory-DB fixture instead of a whole
 """
 import json
 import subprocess
+from pathlib import Path
 
 import pytest
 from sqlmodel import Session, SQLModel, create_engine
 
 from app import models  # noqa: F401  (registers tables)
 from app.ingest.persist import persist_document
-from app.models import JobStatus
-from app.pipeline.runner import JobCancelledError, create_job, run_job
+from app.models import Chapter, JobStatus, Segment
+from app.pipeline.runner import (
+    JobCancelledError,
+    _build_chapter_markers,
+    _build_subtitle_cues,
+    create_job,
+    run_job,
+)
 
 
 @pytest.fixture
@@ -216,3 +223,97 @@ def test_run_job_stops_at_the_next_checkpoint_when_already_cancelled(db_session,
     assert job.status == JobStatus.cancelled
     assert job.finished_at is not None
     assert job.stages == []  # cancelled before any stage even started
+
+
+def _segment(chapter_id, index, start_s, duration_s, text="x") -> Segment:
+    return Segment(job_id=1, chapter_id=chapter_id, index=index, text=text, start_s=start_s, duration_s=duration_s)
+
+
+def test_build_chapter_markers_spans_to_the_next_chapters_start():
+    chapters = [Chapter(id=1, book_id=1, index=0, title="One"), Chapter(id=2, book_id=1, index=1, title="Two")]
+    segments = [
+        _segment(1, 0, 0.0, 1.0),
+        _segment(1, 1, 1.0, 0.5),  # chapter 1 ends at 1.5 (last chunk's start+duration)
+        _segment(2, 2, 2.7, 1.0),  # trailing 1.2s chapter pause lands inside chapter 1's span
+        _segment(2, 3, 3.7, 2.0),  # chapter 2's real end: 5.7
+    ]
+    markers = _build_chapter_markers(chapters, segments)
+    assert len(markers) == 2
+    assert markers[0].title == "One"
+    assert markers[0].start_s == pytest.approx(0.0)
+    assert markers[0].end_s == pytest.approx(2.7)  # next chapter's start, not chapter 1's own last end
+    assert markers[1].title == "Two"
+    assert markers[1].start_s == pytest.approx(2.7)
+    assert markers[1].end_s == pytest.approx(5.7)  # last chapter: real end of the track
+
+
+def test_build_chapter_markers_skips_a_chapter_with_no_segments():
+    """A chapter can be enabled but produce zero audio (e.g. every block was empty
+    after normalization) — it must not show up as a zero-length or bogus marker."""
+    chapters = [
+        Chapter(id=1, book_id=1, index=0, title="One"),
+        Chapter(id=2, book_id=1, index=1, title="Empty"),
+        Chapter(id=3, book_id=1, index=2, title="Three"),
+    ]
+    segments = [_segment(1, 0, 0.0, 1.0), _segment(3, 1, 1.0, 1.0)]
+    markers = _build_chapter_markers(chapters, segments)
+    assert [m.title for m in markers] == ["One", "Three"]
+
+
+def test_build_subtitle_cues_sorts_by_index_and_skips_blank_or_unsynced_segments():
+    segments = [
+        _segment(1, 1, 1.0, 0.5, text="second"),
+        _segment(1, 0, 0.0, 1.0, text="first"),
+        Segment(job_id=1, chapter_id=1, index=2, text="   ", start_s=1.5, duration_s=0.3),  # blank after strip
+        Segment(job_id=1, chapter_id=1, index=3, text="never synced", start_s=None, duration_s=None),
+    ]
+    cues = _build_subtitle_cues(segments)
+    assert [c.text for c in cues] == ["first", "second"]
+    assert cues[0].start_s == pytest.approx(0.0)
+    assert cues[0].end_s == pytest.approx(1.0)
+    assert cues[1].start_s == pytest.approx(1.0)
+    assert cues[1].end_s == pytest.approx(1.5)
+
+
+@pytest.mark.slow
+def test_run_job_produces_every_requested_export_format(db_session, epub_path):
+    """[M5-1]/[M5-2]/[M5-6]: one job can request MP3+M4B+Opus+FLAC+WAV+SRT+VTT in a
+    single render, and every format is both recorded as a JobArtifact and a real,
+    playable/parseable file — including working M4B chapter markers and SRT/VTT cues
+    that line up with the real segment timings."""
+    from app.ingest.epub import EpubParser
+
+    all_formats = ["mp3", "m4b", "opus", "flac", "wav", "srt", "vtt"]
+    document = EpubParser().parse(epub_path)
+    book = persist_document(db_session, document, epub_path, "epub")
+
+    job = create_job(db_session, book, voice="af_heart", speed=1.0, formats=all_formats)
+    primary_path = run_job(db_session, job, workers=2)
+
+    assert primary_path.suffix == ".mp3"  # mp3 stays primary/output_path when requested
+    assert _probe_duration(primary_path) > 1.0
+
+    db_session.refresh(job)
+    assert job.status == JobStatus.done
+    artifacts = {a.format: a.path for a in job.artifacts}
+    assert set(artifacts) == set(all_formats)
+
+    for fmt, path_str in artifacts.items():
+        path = Path(path_str)
+        assert path.is_file(), fmt
+        assert path.stat().st_size > 0, fmt
+
+    m4b_chapters_probe = subprocess.run(
+        ["ffprobe", "-hide_banner", "-v", "quiet", "-print_format", "json", "-show_chapters", artifacts["m4b"]],
+        capture_output=True, text=True,
+    )
+    m4b_chapters = json.loads(m4b_chapters_probe.stdout)["chapters"]
+    assert len(m4b_chapters) == len([c for c in book.chapters if c.enabled])
+    assert m4b_chapters[0]["tags"]["title"] == sorted(book.chapters, key=lambda c: c.index)[0].title
+
+    srt_text = open(artifacts["srt"], encoding="utf-8").read()
+    assert srt_text.startswith("1\n")
+    assert "-->" in srt_text
+
+    vtt_text = open(artifacts["vtt"], encoding="utf-8").read()
+    assert vtt_text.startswith("WEBVTT\n")

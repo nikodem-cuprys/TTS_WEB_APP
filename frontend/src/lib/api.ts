@@ -71,6 +71,10 @@ export type JobStageInfo = {
 
 export type JobStatus = 'queued' | 'running' | 'done' | 'failed' | 'cancelled'
 
+export type ExportFormat = 'mp3' | 'm4b' | 'opus' | 'flac' | 'wav' | 'srt' | 'vtt'
+
+export const EXPORT_FORMATS: ExportFormat[] = ['mp3', 'm4b', 'opus', 'flac', 'wav', 'srt', 'vtt']
+
 export type Job = {
   id: number
   book_id: number
@@ -82,6 +86,7 @@ export type Job = {
   started_at: string | null
   finished_at: string | null
   stages: JobStageInfo[]
+  artifacts: ExportFormat[]
 }
 
 export type SettingsValues = {
@@ -245,8 +250,8 @@ export async function previewVoice(voiceId: string): Promise<Blob> {
 
 // --- jobs -----------------------------------------------------------------------
 
-export function createJob(bookId: number, voice: string, speed: number) {
-  return request<Job>(`/api/books/${bookId}/jobs`, json({ voice, speed }))
+export function createJob(bookId: number, voice: string, speed: number, formats: ExportFormat[] = ['mp3']) {
+  return request<Job>(`/api/books/${bookId}/jobs`, json({ voice, speed, formats }))
 }
 
 export function getJob(jobId: number) {
@@ -263,6 +268,11 @@ export function cancelJob(jobId: number) {
 
 export function downloadJobUrl(jobId: number) {
   return `/api/jobs/${jobId}/download`
+}
+
+/** Downloads one specific exported format (e.g. the M4B or the SRT) for a job. */
+export function downloadJobArtifactUrl(jobId: number, format: ExportFormat) {
+  return `/api/jobs/${jobId}/artifacts/${format}/download`
 }
 
 /** For an <audio> element's src — unlike downloadJobUrl, this has no Content-Disposition:

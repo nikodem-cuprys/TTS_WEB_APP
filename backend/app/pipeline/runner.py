@@ -27,11 +27,20 @@ from ..audio.assemble import (
     assemble_chapter,
 )
 from ..audio import loudness
-from ..audio.encode import encode_mp3, write_wav
+from ..audio.encode import (
+    ChapterMarker,
+    encode_flac,
+    encode_m4b,
+    encode_mp3,
+    encode_opus,
+    encode_wav,
+    write_wav,
+)
 from ..audio.loudness import normalize_loudness
 from ..config import get_settings
-from ..models import Book, Job, JobStage, JobStatus, LexiconEntry, Segment
+from ..models import Book, Chapter, Job, JobArtifact, JobStage, JobStatus, LexiconEntry, Segment
 from ..pipeline import cache
+from ..publish.subtitles import SubtitleCue, to_srt, to_vtt
 from ..text.lexicon import apply_lexicon
 from ..text.normalize import get_version as normalizer_version
 from ..text.normalize import normalize
@@ -40,6 +49,10 @@ from ..tts.pool import DEFAULT_WORKERS, SynthPool, SynthRequest
 from ..tts.registry import engine_for_language
 
 STAGE_NAMES = ["prepare", "synthesize", "assemble", "master", "export"]
+#: every export format the pipeline knows how to produce — validated against at the
+#: API boundary (POST /api/books/{id}/jobs) and looped over in run_job()'s export stage.
+SUPPORTED_EXPORT_FORMATS = {"mp3", "m4b", "opus", "flac", "wav", "srt", "vtt"}
+DEFAULT_EXPORT_FORMATS = ["mp3"]
 _SAFE_NAME_RE = re.compile(r"[^A-Za-z0-9 ._-]+")
 #: chunks per pool.synth_many() call in the synthesize stage — small enough that a
 #: cancel request is noticed within roughly one batch's worth of synthesis time on a
@@ -97,6 +110,41 @@ def _build_chunk_plan(chapters: list, language: str, lexicon_entries: list[Lexic
     return plan
 
 
+def _build_chapter_markers(chapters: list[Chapter], segments: list[Segment]) -> list[ChapterMarker]:
+    """One marker per enabled chapter that actually produced audio, spanning from its
+    first segment's start to the next chapter's start (so the trailing chapter pause
+    reads as part of the chapter that precedes it) — or, for the last chapter, to the
+    end of the assembled track."""
+    by_chapter: dict[int, list[Segment]] = {}
+    for segment in segments:
+        by_chapter.setdefault(segment.chapter_id, []).append(segment)
+
+    starts = [
+        (chapter, min(s.start_s for s in by_chapter[chapter.id]))
+        for chapter in chapters
+        if chapter.id in by_chapter
+    ]
+
+    markers = []
+    for i, (chapter, start_s) in enumerate(starts):
+        if i + 1 < len(starts):
+            end_s = starts[i + 1][1]
+        else:
+            end_s = max(s.start_s + (s.duration_s or 0.0) for s in by_chapter[chapter.id])
+        markers.append(ChapterMarker(start_s=start_s, end_s=end_s, title=chapter.title))
+    return markers
+
+
+def _build_subtitle_cues(segments: list[Segment]) -> list[SubtitleCue]:
+    cues = []
+    for segment in sorted(segments, key=lambda s: s.index):
+        text = segment.text.strip()
+        if not text or segment.start_s is None or segment.duration_s is None:
+            continue
+        cues.append(SubtitleCue(start_s=segment.start_s, end_s=segment.start_s + segment.duration_s, text=text))
+    return cues
+
+
 def time_now():
     from datetime import datetime, timezone
 
@@ -134,8 +182,19 @@ def _check_cancelled(session: Session, job: Job) -> None:
         raise JobCancelledError(f"job {job.id} was cancelled")
 
 
-def create_job(session: Session, book: Book, *, voice: str, speed: float = 1.0, engine_id: str = "kokoro") -> Job:
-    job = Job(book_id=book.id, status=JobStatus.queued, voice=voice, engine=engine_id, speed=speed, formats="mp3")
+def create_job(
+    session: Session,
+    book: Book,
+    *,
+    voice: str,
+    speed: float = 1.0,
+    engine_id: str = "kokoro",
+    formats: list[str] | None = None,
+) -> Job:
+    job = Job(
+        book_id=book.id, status=JobStatus.queued, voice=voice, engine=engine_id, speed=speed,
+        formats=",".join(formats or DEFAULT_EXPORT_FORMATS),
+    )
     session.add(job)
     session.commit()
     session.refresh(job)
@@ -251,20 +310,72 @@ def run_job(
         )
         _finish_stage(session, stage)
 
-        # --- export: MP3 with tags + cover -------------------------------------------
+        # --- export: every requested format, each tagged with title/author/cover ----
         _check_cancelled(session, job)
         stage = _start_stage(session, job, "export")
-        final_path = output_path or (settings.output_dir() / f"{_safe_filename(book.title)}.mp3")
+        base_name = _safe_filename(book.title)
         cover_path = Path(book.cover_path) if book.cover_path else None
-        encode_mp3(mastered_wav, final_path, title=book.title, artist=book.author, album=book.title, cover_path=cover_path)
+        requested_formats = [f.strip() for f in job.formats.split(",") if f.strip()] or DEFAULT_EXPORT_FORMATS
+
+        chapter_markers: list[ChapterMarker] | None = None
+        subtitle_cues: list[SubtitleCue] | None = None
+        artifact_rows: list[JobArtifact] = []
+        primary_path: Path | None = None
+
+        for fmt in requested_formats:
+            if fmt == "mp3":
+                path = output_path or (settings.output_dir() / f"{base_name}.mp3")
+                encode_mp3(
+                    mastered_wav, path, title=book.title, artist=book.author, album=book.title,
+                    cover_path=cover_path,
+                )
+            elif fmt == "m4b":
+                if chapter_markers is None:
+                    chapter_markers = _build_chapter_markers(chapters, segments)
+                path = settings.output_dir() / f"{base_name}.m4b"
+                encode_m4b(
+                    mastered_wav, path, title=book.title, artist=book.author,
+                    chapters=chapter_markers, cover_path=cover_path,
+                )
+            elif fmt == "opus":
+                path = settings.output_dir() / f"{base_name}.opus"
+                encode_opus(mastered_wav, path, title=book.title, artist=book.author, album=book.title)
+            elif fmt == "flac":
+                path = settings.output_dir() / f"{base_name}.flac"
+                encode_flac(mastered_wav, path, title=book.title, artist=book.author, album=book.title)
+            elif fmt == "wav":
+                path = settings.output_dir() / f"{base_name}.wav"
+                encode_wav(mastered_wav, path, title=book.title, artist=book.author, album=book.title)
+            elif fmt == "srt":
+                if subtitle_cues is None:
+                    subtitle_cues = _build_subtitle_cues(segments)
+                path = settings.output_dir() / f"{base_name}.srt"
+                path.write_text(to_srt(subtitle_cues), encoding="utf-8")
+            elif fmt == "vtt":
+                if subtitle_cues is None:
+                    subtitle_cues = _build_subtitle_cues(segments)
+                path = settings.output_dir() / f"{base_name}.vtt"
+                path.write_text(to_vtt(subtitle_cues), encoding="utf-8")
+            else:
+                raise PipelineError(f"unsupported export format: {fmt!r}")
+
+            artifact_rows.append(JobArtifact(job_id=job.id, format=fmt, path=str(path)))
+            # mp3 stays the "primary" output_path (what the pre-existing /download and
+            # /stream endpoints serve) whenever it's requested, for backward
+            # compatibility; otherwise the first requested format wins.
+            if primary_path is None or fmt == "mp3":
+                primary_path = path
+
+        session.add_all(artifact_rows)
+        session.commit()
         _finish_stage(session, stage)
 
         job.status = JobStatus.done
         job.finished_at = time_now()
-        job.output_path = str(final_path)
+        job.output_path = str(primary_path)
         session.add(job)
         session.commit()
-        return final_path
+        return primary_path
 
     except JobCancelledError:
         job.status = JobStatus.cancelled

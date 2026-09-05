@@ -4,7 +4,15 @@ import subprocess
 import numpy as np
 import pytest
 
-from app.audio.encode import encode_mp3, write_wav
+from app.audio.encode import (
+    ChapterMarker,
+    encode_flac,
+    encode_m4b,
+    encode_mp3,
+    encode_opus,
+    encode_wav,
+    write_wav,
+)
 from app.audio.loudness import DEFAULT_TARGET_I, LoudnormError, normalize_loudness
 
 SR = 24000
@@ -73,4 +81,79 @@ def test_encode_mp3_produces_playable_file_with_tags(tmp_path):
     assert tags["title"] == "My Chapter"
     assert tags["artist"] == "My Author"
     assert tags["album"] == "My Book"
+    assert float(info["format"]["duration"]) == pytest.approx(2.0, abs=0.1)
+
+
+def _probe(path, *args):
+    probe = subprocess.run(
+        ["ffprobe", "-hide_banner", "-v", "quiet", "-print_format", "json", *args, str(path)],
+        capture_output=True, text=True,
+    )
+    return json.loads(probe.stdout)
+
+
+def test_encode_m4b_embeds_navigable_chapters(tmp_path):
+    wav = write_wav(tmp_path / "in.wav", _sine(3.0), SR)
+    chapters = [
+        ChapterMarker(start_s=0.0, end_s=1.5, title="Chapter One"),
+        ChapterMarker(start_s=1.5, end_s=3.0, title="Chapter Two"),
+    ]
+    m4b = encode_m4b(wav, tmp_path / "out.m4b", title="My Book", artist="My Author", chapters=chapters)
+    assert m4b.is_file()
+
+    info = _probe(m4b, "-show_format", "-show_chapters")
+    tags = {k.lower(): v for k, v in info["format"]["tags"].items()}
+    assert tags["title"] == "My Book"
+    assert tags["artist"] == "My Author"
+    assert float(info["format"]["duration"]) == pytest.approx(3.0, abs=0.1)
+
+    probed_chapters = info["chapters"]
+    assert len(probed_chapters) == 2
+    assert probed_chapters[0]["tags"]["title"] == "Chapter One"
+    assert probed_chapters[1]["tags"]["title"] == "Chapter Two"
+    assert float(probed_chapters[0]["start_time"]) == pytest.approx(0.0, abs=0.01)
+    assert float(probed_chapters[0]["end_time"]) == pytest.approx(1.5, abs=0.01)
+    assert float(probed_chapters[1]["end_time"]) == pytest.approx(3.0, abs=0.01)
+
+    # the temp FFMETADATA file must not leak into the output directory
+    assert not (tmp_path / "out.chapters.txt").exists()
+
+
+def test_encode_m4b_chapter_title_with_special_chars_survives_escaping(tmp_path):
+    """FFMETADATA1 uses '=', ';', '#', and '\\' as syntax — a chapter title containing
+    any of them must be escaped, not silently corrupt the metadata file."""
+    wav = write_wav(tmp_path / "in.wav", _sine(1.0), SR)
+    chapters = [ChapterMarker(start_s=0.0, end_s=1.0, title="A=B; C#D\\E")]
+    m4b = encode_m4b(wav, tmp_path / "out.m4b", chapters=chapters)
+    info = _probe(m4b, "-show_chapters")
+    assert info["chapters"][0]["tags"]["title"] == "A=B; C#D\\E"
+
+
+def test_encode_opus_produces_playable_file_with_tags(tmp_path):
+    wav = write_wav(tmp_path / "in.wav", _sine(2.0), SR)
+    opus = encode_opus(wav, tmp_path / "out.opus", title="T", artist="A", album="B")
+    assert opus.is_file()
+    info = _probe(opus, "-show_format", "-show_streams")
+    # Ogg/Opus reports metadata tags on the stream, not the format, unlike mp3/flac/
+    # wav/m4b (confirmed directly against a real ffmpeg encode, not assumed).
+    tags = {k.lower(): v for k, v in info["streams"][0]["tags"].items()}
+    assert tags["title"] == "T"
+    assert float(info["format"]["duration"]) == pytest.approx(2.0, abs=0.15)
+
+
+def test_encode_flac_produces_lossless_file_with_tags(tmp_path):
+    wav = write_wav(tmp_path / "in.wav", _sine(2.0), SR)
+    flac = encode_flac(wav, tmp_path / "out.flac", title="T", artist="A", album="B")
+    assert flac.is_file()
+    info = _probe(flac, "-show_format")
+    tags = {k.lower(): v for k, v in info["format"]["tags"].items()}
+    assert tags["title"] == "T"
+    assert float(info["format"]["duration"]) == pytest.approx(2.0, abs=0.1)
+
+
+def test_encode_wav_remuxes_with_tags(tmp_path):
+    wav = write_wav(tmp_path / "in.wav", _sine(2.0), SR)
+    out = encode_wav(wav, tmp_path / "out.wav", title="T", artist="A", album="B")
+    assert out.is_file()
+    info = _probe(out, "-show_format")
     assert float(info["format"]["duration"]) == pytest.approx(2.0, abs=0.1)

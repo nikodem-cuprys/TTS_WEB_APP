@@ -4,7 +4,26 @@ import Button from '../components/ui/Button'
 import Card from '../components/ui/Card'
 import Select from '../components/ui/Select'
 import Slider from '../components/ui/Slider'
-import { createJob, getBook, listVoices, previewVoice, type BookDetail, type VoiceInfo } from '../lib/api'
+import {
+  createJob,
+  getBook,
+  listVoices,
+  previewVoice,
+  EXPORT_FORMATS,
+  type BookDetail,
+  type ExportFormat,
+  type VoiceInfo,
+} from '../lib/api'
+
+const FORMAT_LABELS: Record<ExportFormat, string> = {
+  mp3: 'MP3',
+  m4b: 'M4B (chaptered audiobook)',
+  opus: 'Opus',
+  flac: 'FLAC',
+  wav: 'WAV',
+  srt: 'SRT subtitles',
+  vtt: 'VTT subtitles',
+}
 
 export default function Render() {
   const { bookId } = useParams<{ bookId: string }>()
@@ -15,6 +34,7 @@ export default function Render() {
   const [voices, setVoices] = useState<VoiceInfo[] | null>(null)
   const [voice, setVoice] = useState('')
   const [speed, setSpeed] = useState(1.0)
+  const [formats, setFormats] = useState<ExportFormat[]>(['mp3'])
   const [previewing, setPreviewing] = useState(false)
   const [starting, setStarting] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -52,12 +72,18 @@ export default function Render() {
     }
   }
 
+  const toggleFormat = (format: ExportFormat) => {
+    setFormats((prev) =>
+      prev.includes(format) ? prev.filter((f) => f !== format) : [...prev, format],
+    )
+  }
+
   const handleStart = async () => {
-    if (!voice) return
+    if (!voice || formats.length === 0) return
     setStarting(true)
     setError(null)
     try {
-      const job = await createJob(id, voice, speed)
+      const job = await createJob(id, voice, speed, formats)
       navigate(`/jobs/${job.id}`)
     } catch (e) {
       setError(String(e instanceof Error ? e.message : e))
@@ -116,19 +142,32 @@ export default function Render() {
               <Slider min={0.5} max={2.0} step={0.05} value={speed} onChange={(e) => setSpeed(Number(e.target.value))} />
             </label>
 
-            <label className="flex flex-col gap-1.5">
-              <span className="text-xs font-medium text-text-2">Output format</span>
-              <div className="flex items-center gap-2 text-sm text-text-2">
-                <input type="checkbox" checked disabled className="h-4 w-4" />
-                MP3 (more formats land in a later milestone)
+            <div className="flex flex-col gap-1.5">
+              <span className="text-xs font-medium text-text-2">Output formats</span>
+              <div className="grid grid-cols-2 gap-1.5">
+                {EXPORT_FORMATS.map((format) => (
+                  <label key={format} className="flex items-center gap-2 text-sm text-text-2">
+                    <input
+                      type="checkbox"
+                      className="h-4 w-4"
+                      checked={formats.includes(format)}
+                      onChange={() => toggleFormat(format)}
+                    />
+                    {FORMAT_LABELS[format]}
+                  </label>
+                ))}
               </div>
-            </label>
+              {formats.length === 0 && <p className="text-xs text-danger">Select at least one format.</p>}
+            </div>
           </>
         )}
 
         {error && <p className="text-sm text-danger">{error}</p>}
 
-        <Button onClick={handleStart} disabled={unsupportedLanguage || starting || enabledChapters === 0}>
+        <Button
+          onClick={handleStart}
+          disabled={unsupportedLanguage || starting || enabledChapters === 0 || formats.length === 0}
+        >
           {starting ? 'Starting…' : 'Start Render'}
         </Button>
       </Card>

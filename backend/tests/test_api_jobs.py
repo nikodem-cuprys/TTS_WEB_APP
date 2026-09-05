@@ -170,6 +170,28 @@ def test_create_job_with_wrong_engine_voice_returns_422(client, uploaded_book_id
     assert "kokoro" in resp.json()["detail"]
 
 
+def test_create_job_with_unsupported_format_returns_422(client, uploaded_book_id):
+    resp = client.post(
+        f"/api/books/{uploaded_book_id}/jobs",
+        json={"voice": "af_heart", "formats": ["mp3", "not-a-real-format"]},
+    )
+    assert resp.status_code == 422
+    assert "not-a-real-format" in resp.json()["detail"]
+
+
+def test_create_job_with_empty_formats_returns_422(client, uploaded_book_id):
+    resp = client.post(f"/api/books/{uploaded_book_id}/jobs", json={"voice": "af_heart", "formats": []})
+    assert resp.status_code == 422
+
+
+def test_download_unproduced_artifact_format_returns_404(client, uploaded_book_id):
+    resp = client.post(f"/api/books/{uploaded_book_id}/jobs", json={"voice": "af_heart"})
+    job_id = resp.json()["id"]
+    download = client.get(f"/api/jobs/{job_id}/artifacts/m4b/download")
+    assert download.status_code == 404
+    client.post(f"/api/jobs/{job_id}/cancel")  # don't leave a render running past the test
+
+
 def test_download_before_job_finishes_returns_409(client, uploaded_book_id):
     resp = client.post(f"/api/books/{uploaded_book_id}/jobs", json={"voice": "af_heart"})
     job_id = resp.json()["id"]

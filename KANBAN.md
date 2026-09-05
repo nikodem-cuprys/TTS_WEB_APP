@@ -67,12 +67,6 @@ M5 Publishing → M6 Quality & perf → L Later
 
 ### M5 — Publishing
 
-- **[M5-1] M4B chaptered export** — M · M2-8
-  ffmpeg metadata chapter file, cover, tags.
-  ✅ Chapter markers are navigable in a real audiobook player.
-
-- **[M5-2] Opus / FLAC / WAV exports** — S · M2-8
-
 - **[M5-3] MP4 static-cover render** — M · M2-8
   Cover + audio, `-tune stillimage`, low input fps.
   ✅ A 10-hour book encodes in minutes, not hours, and stays reasonably small.
@@ -82,9 +76,6 @@ M5 Publishing → M6 Quality & perf → L Later
 
 - **[M5-5] Generated cover art** — S · M5-3
   Pillow fallback cover in the dark/green theme with title + author.
-
-- **[M5-6] SRT / VTT subtitles** — S · M2-7
-  ⭐ Free and perfectly aligned — derived from known per-chunk durations, no forced alignment.
 
 - **[M5-7] YouTube chapter timestamps + description** — S · M2-7
   `00:00 Chapter 1` block, ready to paste.
@@ -110,6 +101,51 @@ M5 Publishing → M6 Quality & perf → L Later
 ---
 
 ## ✔️ Done
+
+### M5 — Publishing (3 of 9 cards so far: M5-1, M5-2, M5-6)
+
+A single job can now request any combination of `mp3,m4b,opus,flac,wav,srt,vtt` — each format is
+produced from the one already-mastered WAV (no format-specific re-synthesis) and recorded as a new
+`JobArtifact(job_id, format, path)` row, so a job's `output_path`/`/download`/`/stream` stay MP3-only
+for backward compatibility while a new `GET /api/jobs/{id}/artifacts/{format}/download` endpoint
+serves every other produced format. Verified against the **real running dev server**, not just
+pytest (the Chrome extension needed for an actual browser session wasn't connected in this
+environment, so browser-driven GUI verification — the project's usual pattern for GUI changes —
+was substituted with a direct HTTP smoke test against `uvicorn`/real Kokoro synthesis): uploaded a
+real 2-chapter EPUB, requested all 7 formats in one job, and confirmed all 7 downloaded
+successfully with correct `Content-Type`s, non-empty bodies, and — independently re-measured via
+`ffprobe`, not just "didn't error" — 2 correctly-titled, contiguous M4B chapter markers and SRT/VTT
+cues whose timestamps exactly match the real per-segment synthesis timing. The frontend (`Render`
+page's format checkboxes, `Job` page's per-format download buttons) was verified via a real
+`tsc -b && vite build` and `oxlint` pass (clean; the one pre-existing lint warning on `Render.tsx`
+predates this change, confirmed via `git stash`) rather than an actual browser session, given the
+extension limitation above — noted explicitly per the project's "say so if you can't test the UI"
+rule rather than claimed as done.
+
+- **[M5-1] M4B chaptered export** — M · M2-8 — chapter spans are derived from each chapter's
+  already-known segment `start_s`/`duration_s` (no new alignment step): a chapter's marker runs
+  from its first segment's start to the *next* chapter's start (so the inter-chapter pause reads as
+  trailing silence of the chapter before it), and the last chapter's marker ends at the real end of
+  the track. A chapter that produced zero segments (e.g. every block normalized to empty text) is
+  skipped rather than emitting a bogus zero-length marker — covered by a dedicated unit test.
+  Chapter titles are escaped per the FFMETADATA1 spec (`=`, `;`, `#`, `\` all have syntactic meaning
+  there) — also covered by a regression test with a title containing all four characters.
+  ✅ Chapter markers are navigable in a real audiobook player — verified via `ffprobe -show_chapters`
+  against both a synthetic ffmpeg-generated file and the real end-to-end render above.
+
+- **[M5-2] Opus / FLAC / WAV exports** — S · M2-8 — Opus and FLAC re-encode from the mastered WAV;
+  WAV is a lossless `-c:a copy` remux under the final filename (no re-encode needed, since the
+  mastered file is already a WAV). One real finding while writing the Opus test: `ffprobe` reports
+  metadata tags on the **stream**, not the **format**, for an Ogg/Opus container — unlike MP3/FLAC/
+  WAV/M4B, which all put tags on `format.tags`. Confirmed directly against a real ffmpeg encode
+  before fixing the test, rather than assumed.
+
+- **[M5-6] SRT / VTT subtitles** — S · M2-7 — `publish/subtitles.py`, built from the exact same
+  per-segment `(start_s, duration_s)` M5-1's chapter markers use — genuinely free, no forced
+  alignment. Blank-after-normalization segments and segments that never got a `start_s`/`duration_s`
+  (failed/未-synthesized) are skipped so they don't produce a bogus zero-duration or `None`-timed
+  cue. Timestamp formatting (`HH:MM:SS,mmm` for SRT, `HH:MM:SS.mmm` for VTT) is covered by dedicated
+  unit tests including an hour-boundary case and a defensively-clamped negative-input case.
 
 ### M4 — Multi-language (all 6 cards) — 🎯 G3 achieved
 

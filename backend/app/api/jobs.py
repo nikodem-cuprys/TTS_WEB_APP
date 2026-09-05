@@ -9,14 +9,14 @@ from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import FileResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlmodel import Session
 from sse_starlette.sse import EventSourceResponse
 
 from .. import settings_store
 from ..db import get_session, new_session
 from ..models import Book, Job, JobStatus
-from ..pipeline.runner import create_job, run_job
+from ..pipeline.runner import SUPPORTED_EXPORT_FORMATS, create_job, run_job
 from ..tts.registry import UnsupportedLanguageError, VoiceNotFoundError, engine_for_language, resolve_voice
 from ..util import utc_iso
 
@@ -25,10 +25,21 @@ router = APIRouter()
 _TERMINAL_STATUSES = (JobStatus.done, JobStatus.failed, JobStatus.cancelled)
 _POLL_INTERVAL_S = 0.5
 
+_ARTIFACT_MEDIA_TYPES = {
+    "mp3": "audio/mpeg",
+    "m4b": "audio/mp4",
+    "opus": "audio/ogg",
+    "flac": "audio/flac",
+    "wav": "audio/wav",
+    "srt": "application/x-subrip",
+    "vtt": "text/vtt",
+}
+
 
 class CreateJobRequest(BaseModel):
     voice: str
     speed: float = 1.0
+    formats: list[str] = Field(default_factory=lambda: ["mp3"])
 
 
 class JobStageOut(BaseModel):
@@ -48,6 +59,7 @@ class JobOut(BaseModel):
     started_at: str | None
     finished_at: str | None
     stages: list[JobStageOut]
+    artifacts: list[str]
 
 
 def _job_out(job: Job) -> JobOut:
@@ -60,6 +72,7 @@ def _job_out(job: Job) -> JobOut:
             JobStageOut(name=s.name, status=s.status, progress=s.progress)
             for s in sorted(job.stages, key=lambda s: s.id or 0)
         ],
+        artifacts=[a.format for a in sorted(job.artifacts, key=lambda a: a.id or 0)],
     )
 
 
@@ -105,8 +118,17 @@ def create_render_job(book_id: int, body: CreateJobRequest, session: Session = D
             ),
         )
 
+    if not body.formats:
+        raise HTTPException(status_code=422, detail="at least one output format is required")
+    unknown_formats = sorted(set(body.formats) - SUPPORTED_EXPORT_FORMATS)
+    if unknown_formats:
+        raise HTTPException(
+            status_code=422,
+            detail=f"unsupported format(s) {unknown_formats}; supported: {sorted(SUPPORTED_EXPORT_FORMATS)}",
+        )
+
     typed = settings_store.get_typed(session)
-    job = create_job(session, book, voice=body.voice, speed=body.speed)
+    job = create_job(session, book, voice=body.voice, speed=body.speed, formats=body.formats)
 
     thread = threading.Thread(
         target=_run_in_background,
@@ -178,6 +200,24 @@ def stream_job(job_id: int, session: Session = Depends(get_session)) -> FileResp
     if not path.is_file():
         raise HTTPException(status_code=404, detail="output file is missing")
     return FileResponse(path, media_type="audio/mpeg")
+
+
+@router.get("/jobs/{job_id}/artifacts/{format}/download")
+def download_job_artifact(job_id: int, format: str, session: Session = Depends(get_session)) -> FileResponse:
+    """Downloads one specific exported format for a job — e.g. the M4B alongside the
+    MP3, or the SRT/VTT subtitle file. `/download` (above) stays MP3-only for
+    backward compatibility with the original single-format download button."""
+    job = session.get(Job, job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail="job not found")
+    artifact = next((a for a in job.artifacts if a.format == format), None)
+    if artifact is None:
+        raise HTTPException(status_code=404, detail=f"format {format!r} was not produced for this job")
+    path = Path(artifact.path)
+    if not path.is_file():
+        raise HTTPException(status_code=404, detail="output file is missing")
+    media_type = _ARTIFACT_MEDIA_TYPES.get(format, "application/octet-stream")
+    return FileResponse(path, media_type=media_type, filename=path.name)
 
 
 @router.get("/jobs/{job_id}/events")

@@ -4,14 +4,32 @@ import Button from '../components/ui/Button'
 import Card from '../components/ui/Card'
 import ProgressBar from '../components/ui/ProgressBar'
 import JobStatusBadge from '../components/JobStatusBadge'
-import { cancelJob, downloadJobUrl, getJob, streamJobUrl, subscribeJobEvents, type Job as JobType } from '../lib/api'
+import {
+  cancelJob,
+  downloadJobArtifactUrl,
+  getJob,
+  streamJobUrl,
+  subscribeJobEvents,
+  type ExportFormat,
+  type Job as JobType,
+} from '../lib/api'
 
 const STAGE_LABELS: Record<string, string> = {
   prepare: 'Preparing text',
   synthesize: 'Synthesizing speech',
   assemble: 'Assembling audio',
   master: 'Mastering loudness',
-  export: 'Exporting MP3',
+  export: 'Exporting',
+}
+
+const ARTIFACT_LABELS: Record<ExportFormat, string> = {
+  mp3: 'MP3',
+  m4b: 'M4B',
+  opus: 'Opus',
+  flac: 'FLAC',
+  wav: 'WAV',
+  srt: 'SRT',
+  vtt: 'VTT',
 }
 
 function elapsedSeconds(job: JobType): number | null {
@@ -114,12 +132,19 @@ export default function Job() {
               {cancelling ? 'Cancelling…' : 'Cancel'}
             </Button>
           )}
-          {job.status === 'done' && (
-            <a href={downloadJobUrl(job.id)} download>
-              <Button size="sm">Download MP3</Button>
-            </a>
-          )}
         </div>
+
+        {job.status === 'done' && job.artifacts.length > 0 && (
+          <div className="flex flex-wrap gap-2">
+            {job.artifacts.map((format) => (
+              <a key={format} href={downloadJobArtifactUrl(job.id, format)} download>
+                <Button size="sm" variant="secondary">
+                  Download {ARTIFACT_LABELS[format]}
+                </Button>
+              </a>
+            ))}
+          </div>
+        )}
 
         {job.status === 'done' && (
           // eslint-disable-next-line jsx-a11y/media-has-caption

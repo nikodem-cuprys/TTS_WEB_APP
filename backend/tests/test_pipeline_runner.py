@@ -11,10 +11,11 @@ from sqlmodel import Session, SQLModel, create_engine
 
 from app import models  # noqa: F401  (registers tables)
 from app.ingest.persist import persist_document
-from app.models import Chapter, JobStatus, Segment
+from app.models import Block, BlockKind, Chapter, JobStatus, Segment
 from app.pipeline.runner import (
     JobCancelledError,
     _build_chapter_markers,
+    _build_chunk_plan,
     _build_subtitle_cues,
     _safe_filename,
     create_job,
@@ -259,6 +260,32 @@ def test_build_chapter_markers_skips_a_chapter_with_no_segments():
     segments = [_segment(1, 0, 0.0, 1.0), _segment(3, 1, 1.0, 1.0)]
     markers = _build_chapter_markers(chapters, segments)
     assert [m.title for m in markers] == ["One", "Three"]
+
+
+def test_build_chunk_plan_excludes_skip_kind_blocks():
+    """[M6-3]: a BlockKind.skip block (e.g. a PDF footnote) must never reach synthesis
+    — it stays a real, visible, editable Block row, but _build_chunk_plan is where the
+    exclusion from narration actually happens. The skip block sits last, after the real
+    last paragraph, so this also proves "is this the chapter's last block" is decided
+    from the *filtered* list — a skip block trailing the real content must not steal
+    the end-of-book pause treatment from the paragraph that actually is last now."""
+    chapter = Chapter(
+        id=1, book_id=1, index=0, title="One",
+        blocks=[
+            Block(chapter_id=1, index=0, kind=BlockKind.para, text="First paragraph."),
+            Block(chapter_id=1, index=1, kind=BlockKind.para, text="Second paragraph."),
+            Block(chapter_id=1, index=2, kind=BlockKind.skip, text="1. A footnote nobody should hear."),
+        ],
+    )
+    plan = _build_chunk_plan([chapter], "en", [])
+    plan_texts = [item.text for item in plan]
+    assert not any("footnote" in t for t in plan_texts)
+    assert any("First paragraph" in t for t in plan_texts)
+    assert any("Second paragraph" in t for t in plan_texts)
+    # the last *narrated* chunk ("Second paragraph"'s) gets the end-of-book pause (the
+    # only/last chapter's last real block), not a mid-block pause as if the skip block
+    # were still counted as trailing content after it.
+    assert plan[-1].pause_after_s == 0.0
 
 
 def test_build_subtitle_cues_sorts_by_index_and_skips_blank_or_unsynced_segments():

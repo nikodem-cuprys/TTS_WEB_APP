@@ -112,3 +112,72 @@ def pdf_2col_path(tmp_path):
     path = tmp_path / "sample_2col.pdf"
     doc.save(str(path))
     return path
+
+
+@pytest.fixture
+def pdf_drop_cap_and_footnote_path(tmp_path):
+    """A 3-page, single-column PDF whose first page opens with a drop-cap first letter
+    (a large-font "T" immediately followed by the rest of the word/sentence at body
+    size) and whose every page carries a small-font footnote near the bottom — distinct
+    text per page, so it can't be mistaken for a recurring header/footer."""
+    doc = pymupdf.open()
+    W, H = 500, 700
+    body_size = 11
+    drop_cap_size = 11 * 3  # towers over body text, like a real illuminated capital
+    footnote_size = 7  # noticeably smaller than body text
+
+    for page_num in (1, 2, 3):
+        page = doc.new_page(width=W, height=H)
+        if page_num == 1:
+            # The drop cap and the rest of the word are two separate text insertions
+            # (as real drop-cap layouts produce) but sit on the same visual line.
+            page.insert_text((40, 110), "T", fontsize=drop_cap_size)
+            page.insert_textbox(
+                pymupdf.Rect(75, 90, W - 40, 140),
+                "he ancient city stirred with life as dawn broke over the quiet harbor.",
+                fontsize=body_size,
+            )
+            body_top = 160
+        else:
+            page.insert_textbox(
+                pymupdf.Rect(40, 60, W - 40, 140),
+                f"Page {page_num} continues the story with an entirely ordinary paragraph "
+                "of body text, long enough to fill a couple of lines.",
+                fontsize=body_size,
+            )
+            body_top = 160
+        page.insert_textbox(
+            pymupdf.Rect(40, body_top, W - 40, H - 120),
+            f"Unique body marker {page_num}.",
+            fontsize=body_size,
+        )
+        # Footnote zone (~80% down the page): distinct text per page, well below body
+        # text and well above the very bottom, in a noticeably smaller font.
+        page.insert_textbox(
+            pymupdf.Rect(40, H - 130, W - 40, H - 100),
+            f"{page_num}. Footnote text unique to page {page_num}, citing a source.",
+            fontsize=footnote_size,
+        )
+
+    path = tmp_path / "sample_hardening.pdf"
+    doc.save(str(path))
+    return path
+
+
+@pytest.fixture
+def pdf_scanned_path(tmp_path):
+    """A PDF with no extractable text at all — every page is a plain image, the way a
+    scanned book typically comes through."""
+    doc = pymupdf.open()
+    W, H = 500, 700
+    pix = pymupdf.Pixmap(pymupdf.csRGB, pymupdf.IRect(0, 0, 200, 200))
+    pix.set_rect(pix.irect, (255, 255, 255))
+    image_bytes = pix.tobytes("png")
+
+    for _ in range(2):
+        page = doc.new_page(width=W, height=H)
+        page.insert_image(pymupdf.Rect(50, 50, 450, 650), stream=image_bytes)
+
+    path = tmp_path / "sample_scanned.pdf"
+    doc.save(str(path))
+    return path

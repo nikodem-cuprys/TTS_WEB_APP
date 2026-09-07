@@ -27,9 +27,6 @@ M5 Publishing → M6 Quality & perf → L Later
 
 ### M6 — Quality & performance
 
-- **[M6-3] PDF parser hardening** — L · M1-4
-  Real-world samples: scanned, 2-column, heavy footnotes, drop caps.
-
 - **[M6-4] Disk + cache management** — M · M2-5
   Size reporting, prune, intermediate cleanup. ⚠️ Only 54 GB free on `D:`; WAV intermediates for a
   10-hour book run ~1.7 GB.
@@ -89,7 +86,7 @@ M5 Publishing → M6 Quality & perf → L Later
 
 ## ✔️ Done
 
-### M6 — Quality & performance (1 of 6 cards so far: M6-1)
+### M6 — Quality & performance (2 of 6 cards so far: M6-1, M6-3)
 
 - **[M6-1] bench.py + RTF gate** — M · M4-* — `scripts/bench.py` renders a fixed ~5-minute passage
   per language through the **real production pipeline** (`pipeline.runner.run_job()` — pooled
@@ -145,6 +142,59 @@ M5 Publishing → M6 Quality & perf → L Later
   `scripts/render_book.py` and `scripts/fetch_models.py`, is verified by direct execution against the
   real backend rather than unit-tested, the same convention KANBAN's M2-10/M0-5 entries already
   established for this project's standalone scripts.
+
+- **[M6-3] PDF parser hardening** — L · M1-4 — closed all three real-world gaps this card names, each
+  found and fixed via direct output inspection against a purpose-built synthetic fixture, not assumed
+  to work.
+  1. **Drop caps.** The actual bug turned out subtler than "a drop cap forms its own stray block":
+     pymupdf extracts a drop-cap glyph and the rest of its opening word as two separate *lines within
+     one block* (it splits a line wherever the font size changes), so the existing line-join (a
+     space — correct for real wrapped lines) produced "T he ancient city..." instead of "The ancient
+     city...". Worse, that block's `max_size` picked up the drop cap's own huge font size, so the
+     *whole paragraph* tripped `_is_heading_block`'s 1.3× ratio check and got misread as a chapter
+     title. Fixed at the source in `_page_blocks()`: a new `_merge_drop_cap_lines()` merges a short,
+     alphabetic, markedly-oversized line straight into the line after it (no separator), purely from
+     the two lines' own text/size — no document-wide body-font estimate needed, and it runs before one
+     is even available. The block's `max_size` is then computed from the *merged* lines, so it no
+     longer carries the drop cap's inflated size once merged. A second, independent defense (kept for
+     a differently-structured real-world PDF where a drop cap genuinely is its own block, not just its
+     own line) merges an un-merged oversized 1-2 character block into whatever follows it on the same
+     page, and `_is_heading_block` now also refuses to call anything that short a heading even if font
+     size alone would have suggested it.
+  2. **Footnotes.** Unlike a running header/footer, footnote text differs page to page, so the
+     existing recurrence-based `_strip_headers_footers()` can never catch it — it needed an entirely
+     separate signal. Footnote-zone blocks (positioned in the lower ~22% of the page, just above the
+     header/footer's own footer zone, in a font noticeably smaller than body text) are now classified
+     as `BlockKind.skip` rather than `BlockKind.para` — kept as real, visible, editable blocks (a user
+     can still promote one back to narrated in the UI) rather than silently discarded, consistent with
+     how the rest of the app already treats "exclude, don't delete." **Along the way, found that
+     `BlockKind.skip` had existed in the schema since FB2 support ([M1-5]) but was never actually
+     wired up anywhere** — FB2's own "footnotes excluded" claim worked by never creating blocks for
+     its notes body at all, not via this enum value, so nothing in `pipeline/runner.py`'s
+     `_build_chunk_plan()` ever filtered `skip`-kind blocks from narration. A skip block would have
+     been narrated anyway. Fixed as part of this card (small, surgical, and necessary for the new PDF
+     footnote-marking to actually do anything): `_build_chunk_plan()` now filters `BlockKind.skip`
+     blocks out before computing anything, including which block is a chapter's *last* one for
+     pause-placement purposes — verified with a dedicated test where the skip block trails the real
+     last paragraph, confirming the end-of-book pause lands on the real content, not stolen by (or
+     miscounted around) the footnote after it.
+  3. **Scanned (image-only) PDFs.** The graceful-degradation path (`ParseError` — "may be a scanned
+     image PDF" — when zero text blocks are extracted) already existed but had no regression test;
+     added one against a real image-only synthetic PDF (a plain white pixmap on every page, no text
+     objects at all) to lock it in. A *partially*-scanned PDF (some real-text pages, one image-only
+     page mixed in) needed no code change — a page contributing zero blocks was already silently
+     tolerated, confirmed rather than assumed by including it implicitly in how `_page_blocks()`
+     already worked page-by-page.
+  ✅ Verified against purpose-built synthetic fixtures (this project's established PDF-testing
+  convention since [M1-4], generated with `pymupdf` itself rather than committing binary files): a new
+  `pdf_drop_cap_and_footnote_path` fixture (a drop-cap opening line plus a distinct, non-recurring,
+  small-font footnote on every one of 3 pages) and a new `pdf_scanned_path` fixture (image-only, 2
+  pages). 5 new PDF-level tests confirm the drop cap merges into real prose (not "T he ancient..."),
+  is never mistaken for a chapter title, and that every footnote block — one per page, still
+  individually present and correctly `BlockKind.skip` — leaves the real body paragraphs on the same
+  pages untouched and still `BlockKind.para`; 1 more confirms the scanned-PDF error path. A 6th, at the
+  pipeline level, confirms `_build_chunk_plan()`'s new skip-filtering directly. Full backend suite:
+  235 passed (up from 229).
 
 ### M5 — Publishing (all 9 cards) — 🎯 G4 achieved
 

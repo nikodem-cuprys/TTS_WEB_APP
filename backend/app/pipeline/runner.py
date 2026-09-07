@@ -39,7 +39,7 @@ from ..audio.encode import (
 )
 from ..audio.loudness import normalize_loudness
 from ..config import get_settings
-from ..models import Book, Chapter, Job, JobArtifact, JobStage, JobStatus, LexiconEntry, Segment
+from ..models import BlockKind, Book, Chapter, Job, JobArtifact, JobStage, JobStatus, LexiconEntry, Segment
 from ..pipeline import cache
 from ..publish.chapters_txt import build_youtube_description
 from ..publish.split import DEFAULT_PART_LIMIT_S, part_filename, part_title, split_into_parts
@@ -91,11 +91,15 @@ def _build_chunk_plan(chapters: list, language: str, lexicon_entries: list[Lexic
     (sentence) pause, a block's last chunk gets the paragraph pause unless it's also
     its chapter's last block (chapter pause), and the very last chunk of the book gets
     none. Never crosses a block boundary within one segment_text() call — see
-    text/segment.py's docstring on why that matters for this pause logic."""
+    text/segment.py's docstring on why that matters for this pause logic.
+
+    A `BlockKind.skip` block (e.g. a PDF footnote, [M6-3]) is filtered out before any
+    of the above — it's excluded from narration entirely, but stays a real, visible,
+    editable block in the UI rather than being silently dropped at parse time."""
     plan: list[_ChunkPlan] = []
     for chapter_i, chapter in enumerate(chapters):
         is_last_chapter = chapter_i == len(chapters) - 1
-        blocks = sorted(chapter.blocks, key=lambda b: b.index)
+        blocks = [b for b in sorted(chapter.blocks, key=lambda b: b.index) if b.kind != BlockKind.skip]
         for block_i, block in enumerate(blocks):
             is_last_block = block_i == len(blocks) - 1
             with_lexicon = apply_lexicon(block.text, lexicon_entries)

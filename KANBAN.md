@@ -67,9 +67,6 @@ M5 Publishing → M6 Quality & perf → L Later
 
 ### M5 — Publishing
 
-- **[M5-5] Generated cover art** — S · M5-3
-  Pillow fallback cover in the dark/green theme with title + author.
-
 - **[M5-7] YouTube chapter timestamps + description** — S · M2-7
   `00:00 Chapter 1` block, ready to paste.
 
@@ -95,7 +92,7 @@ M5 Publishing → M6 Quality & perf → L Later
 
 ## ✔️ Done
 
-### M5 — Publishing (5 of 9 cards so far: M5-1, M5-2, M5-3, M5-4, M5-6)
+### M5 — Publishing (6 of 9 cards so far: M5-1, M5-2, M5-3, M5-4, M5-5, M5-6)
 
 A single job can now request any combination of `mp3,m4b,opus,flac,wav,srt,vtt,mp4` — each format is
 produced from the one already-mastered WAV (no format-specific re-synthesis) and recorded as a new
@@ -197,6 +194,34 @@ the project's "say so if you can't test the UI" rule rather than claimed as done
   backend suite: 201 passed (up from 191). Frontend verified via a clean `tsc -b && vite build` and
   `oxlint` pass (same pre-existing, unrelated `Render.tsx` warning; no actual browser session, per the
   same Chrome-extension-unavailable caveat as [M5-3]).
+
+- **[M5-5] Generated cover art** — S · M5-3 — a new `video/cover.py` (`generate_cover()`) draws a
+  1600×1600 dark/green-theme placeholder with Pillow — a thin `--accent` frame, the title
+  word-wrapped and centered (auto-shrinking its font, down to a floor, until it fits within 5 lines
+  so an unusually long title never overflows the canvas), and the author beneath in `--text-2` if
+  given. Uses `ImageFont.load_default(size=...)`, Pillow's own bundled scalable font — no external
+  font file to ship or a Windows-only system-font assumption to make. Added `Pillow` as a new backend
+  dependency (nothing in the project pulled it in transitively). Wired into `pipeline/runner.py`'s
+  export stage: when a book has no real extracted cover *and* the job actually requested a
+  format that uses one (`mp3`/`m4b`/`mp4` — checked explicitly, so an SRT/VTT/Opus/FLAC/WAV-only job
+  never pays for a Pillow render it wouldn't use), a fallback is generated fresh into the job's own
+  cache-dir path and used exactly like a real cover from there on. Deliberately generated **per
+  render, not cached on `Book.cover_path`**: a title/author is already editable via `PATCH
+  /api/books/{id}` (`BookUpdate`, pre-existing from before this card), and caching the very first
+  generated cover would have baked in the pre-edit title, going stale on every later render — regenerating
+  it fresh each time costs a few tens of milliseconds and is worth it for correctness.
+  ✅ Verified concretely: 5 new `test_cover.py` cases confirm the correct 1600×1600 output size, the
+  real `--bg` background color sampled from an actual output pixel (not just "didn't throw"), the
+  no-author layout, and that both an empty and a pathologically long title still produce a valid,
+  non-overflowing image. The existing multi-format pipeline test (this fixture book has no cover of
+  its own) now additionally confirms via `ffprobe` that the generated cover is actually what
+  ends up embedded — the MP4's video track is 1600×1600 (`generate_cover()`'s own size, distinguishing
+  it from `video/render.py`'s separate 1280×720 flat-color placeholder, which now only fires when
+  *no* cover_path is passed in at all) and the MP3 carries a real `attached_pic` cover stream, which
+  it did not before this card (no cover meant `encode_mp3()` skipped the cover entirely). Full backend
+  suite: 206 passed (up from 201). No frontend change was needed or made — nothing in the UI serves
+  cover images yet (`has_cover` is declared in `api.ts` but unused), so this card's own scope stayed
+  backend-only.
 
 - **[M5-6] SRT / VTT subtitles** — S · M2-7 — `publish/subtitles.py`, built from the exact same
   per-segment `(start_s, duration_s)` M5-1's chapter markers use — genuinely free, no forced

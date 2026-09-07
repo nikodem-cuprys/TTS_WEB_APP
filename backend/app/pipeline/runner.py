@@ -47,6 +47,7 @@ from ..text.normalize import normalize
 from ..text.segment import segment_text
 from ..tts.pool import DEFAULT_WORKERS, SynthPool, SynthRequest
 from ..tts.registry import engine_for_language
+from ..video.cover import generate_cover
 from ..video.render import VIDEO_STYLES, render_mp4
 
 STAGE_NAMES = ["prepare", "synthesize", "assemble", "master", "export"]
@@ -316,8 +317,16 @@ def run_job(
         _check_cancelled(session, job)
         stage = _start_stage(session, job, "export")
         base_name = _safe_filename(book.title)
-        cover_path = Path(book.cover_path) if book.cover_path else None
         requested_formats = [f.strip() for f in job.formats.split(",") if f.strip()] or DEFAULT_EXPORT_FORMATS
+
+        cover_path = Path(book.cover_path) if book.cover_path else None
+        if cover_path is None and {"mp3", "m4b", "mp4"} & set(requested_formats):
+            # [M5-5]: a Pillow-generated fallback, regenerated fresh from the book's
+            # current title/author on every render rather than cached on the book row,
+            # so an edited title never leaves a stale cover baked into old exports.
+            cover_path = generate_cover(
+                settings.cache_dir() / f"job_{job.id}_cover.png", title=book.title, author=book.author,
+            )
 
         chapter_markers: list[ChapterMarker] | None = None
         subtitle_cues: list[SubtitleCue] | None = None

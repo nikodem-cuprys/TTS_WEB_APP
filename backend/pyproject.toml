@@ -26,6 +26,7 @@ dependencies = [
     "numpy>=2.0",
     "piper-tts>=1.8",
     "misaki[zh]>=0.9",
+    "Pillow>=10.4",
 ]
 
 [project.optional-dependencies]

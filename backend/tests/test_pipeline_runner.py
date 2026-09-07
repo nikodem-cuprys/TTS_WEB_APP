@@ -277,12 +277,13 @@ def test_build_subtitle_cues_sorts_by_index_and_skips_blank_or_unsynced_segments
 
 @pytest.mark.slow
 def test_run_job_produces_every_requested_export_format(db_session, epub_path):
-    """[M5-1]/[M5-2]/[M5-3]/[M5-6]: one job can request MP3+M4B+Opus+FLAC+WAV+SRT+VTT+MP4
-    in a single render, and every format is both recorded as a JobArtifact and a real,
-    playable/parseable file — including working M4B chapter markers, SRT/VTT cues that
-    line up with the real segment timings, and an MP4 whose duration matches the
-    mastered audio (this fixture book has no cover, so this also exercises MP4's
-    placeholder-background fallback path)."""
+    """[M5-1]/[M5-2]/[M5-3]/[M5-5]/[M5-6]: one job can request MP3+M4B+Opus+FLAC+WAV+
+    SRT+VTT+MP4 in a single render, and every format is both recorded as a JobArtifact
+    and a real, playable/parseable file — including working M4B chapter markers, SRT/
+    VTT cues that line up with the real segment timings, and an MP4 whose duration
+    matches the mastered audio. This fixture book has no cover of its own, so this also
+    exercises the [M5-5] Pillow-generated fallback cover being embedded in both the MP3
+    (attached_pic) and the MP4 (video track)."""
     from app.ingest.epub import EpubParser
 
     all_formats = ["mp3", "m4b", "opus", "flac", "wav", "srt", "vtt", "mp4"]
@@ -329,6 +330,19 @@ def test_run_job_produces_every_requested_export_format(db_session, epub_path):
     kinds = {s["codec_type"] for s in mp4_info["streams"]}
     assert kinds == {"video", "audio"}
     assert float(mp4_info["format"]["duration"]) == pytest.approx(_probe_duration(primary_path), abs=0.5)
+    # 1600x1600 is generate_cover()'s own output size — confirms the MP4 actually used
+    # the [M5-5] generated cover, not the plain flat-color lavfi placeholder that
+    # video/render.py falls back to when no cover_path is given at all.
+    mp4_video = next(s for s in mp4_info["streams"] if s["codec_type"] == "video")
+    assert (mp4_video["width"], mp4_video["height"]) == (1600, 1600)
+
+    mp3_probe = subprocess.run(
+        ["ffprobe", "-hide_banner", "-v", "quiet", "-print_format", "json", "-show_streams", artifacts["mp3"]],
+        capture_output=True, text=True,
+    )
+    mp3_streams = json.loads(mp3_probe.stdout)["streams"]
+    cover_stream = next(s for s in mp3_streams if s["codec_type"] == "video")
+    assert cover_stream["disposition"]["attached_pic"] == 1
 
 
 @pytest.mark.slow

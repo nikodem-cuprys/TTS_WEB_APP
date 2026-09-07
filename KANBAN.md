@@ -27,10 +27,6 @@ M5 Publishing → M6 Quality & perf → L Later
 
 ### M6 — Quality & performance
 
-- **[M6-1] bench.py + RTF gate** — M · M4-*
-  Fixed ~5-minute passage per language; reports per-engine and end-to-end RTF including ffmpeg.
-  ✅ **End-to-end RTF < 1.0** with the default 4-worker pool. Record the real number in the README.
-
 - **[M6-2] 🎯 G5 — Listening QA pass × 4 languages** — L · M4-*
   3 consecutive minutes per language. Check number/abbreviation reading, pause pacing, chunk-join
   artifacts. No automated metric substitutes for this.
@@ -82,6 +78,63 @@ M5 Publishing → M6 Quality & perf → L Later
 ---
 
 ## ✔️ Done
+
+### M6 — Quality & performance (1 of 6 cards so far: M6-1)
+
+- **[M6-1] bench.py + RTF gate** — M · M4-* — `scripts/bench.py` renders a fixed ~5-minute passage
+  per language through the **real production pipeline** (`pipeline.runner.run_job()` — pooled
+  synthesis, assembly, loudness mastering, MP3 encode, exactly what a real render does), reporting
+  both that end-to-end RTF and a separate "engine RTF" (the same passage's chunks synthesized
+  sequentially through the raw engine, no pool/assembly/mastering/encode overhead) so the pool's own
+  contribution is visible. Doubles as a CI-style gate: exits non-zero if any language's end-to-end RTF
+  doesn't beat `--target-rtf` (default 1.0). The four passages are original prose (a short
+  "lighthouse keeper" narrative, not excerpted from any real book) written in parallel across all four
+  languages and deliberately loaded with the kind of content the normalizers actually handle — years,
+  percentages, currency, abbreviated titles — not just plain filler words; each repetition needed to
+  reach the target length is prefixed with a distinct "Part N" marker so that repeating the passage
+  never produces two chunks sharing a cache key (a naive repeated-verbatim passage would have let the
+  second occurrence hit the content-addressed chunk cache and silently report a falsely fast time).
+  Runs in a `tempfile.mkdtemp()`-created throwaway data directory, deleted on exit, so a benchmark run
+  never touches the app's real cache/output/database.
+  Two real, reproducible bugs hit and fixed while building this, both instructive beyond this one
+  script:
+  1. **A classic Windows `ProcessPoolExecutor` pitfall, not a heredoc this time.** The env-var/tempdir
+     setup was originally unindented top-level code — but on Windows, the `spawn` start method
+     re-imports the entry script in every worker process, and an unguarded `tempfile.mkdtemp()` /
+     `os.environ[...]` assignment there let each of the 4 workers overwrite its own *correctly
+     inherited* copy of `AUDIOBOOK_DATA_DIR` with a fresh, different random tempdir before actually
+     doing any synthesis work — splitting chunk-cache reads/writes across processes and crashing the
+     parent with `soundfile` "Error opening ... System error" once it tried to read a chunk a worker
+     had written to a directory the parent didn't know about. Root cause confirmed directly (found 3
+     result directories after one 2-worker run, 2 of them containing only stray files a worker wrote,
+     matching the worker count exactly), not assumed. Fixed by guarding that specific setup with
+     `if __name__ == "__main__":` — the spawn bootstrap gives re-imported children `__name__ ==
+     "__mp_main__"`, so the guard is exactly what makes a worker inherit the parent's real value
+     instead of manufacturing its own. This is a sharper, more general version of the existing
+     "multiprocessing + stdin heredocs don't mix on Windows" standing decision below — same
+     re-import-of-`__main__` root mechanism, different unguarded-top-level-code symptom.
+  2. **Chinese has no whitespace between words.** The initial "~N minutes" passage-length estimate
+     used `str.split()` word counts for every language, including Chinese — where an entire unspaced
+     sentence counts as "one word," undercounting the real length by roughly two orders of magnitude.
+     A `--minutes 0.2` smoke test that should have produced a ~30-second Chinese passage instead
+     produced 288 seconds of audio, caught by comparing actual vs. requested duration rather than
+     assuming the loop terminated correctly. Fixed with a characters-per-minute heuristic for Chinese
+     specifically instead of a word count, since a CJK character is the right unit there.
+  A real, incidental finding while smoke-testing against the live dev server for [M5-9]'s
+  verification earlier in this session had also left stray output files under the repo's real `data/`
+  directory (a wrong cleanup path was used at the time) — discovered and cleaned up in the course of
+  this card's own real-data-dir-pollution check, which is exactly the kind of check this card's
+  isolated-tempdir design exists to make unnecessary going forward.
+  ✅ **End-to-end RTF < 1.0 for all four languages** with the real default 4-worker pool, verified with
+  the actual ~5-minute passages (not just the quick smoke-test lengths used while debugging): English
+  0.131, Polish 0.083, German 0.126, Chinese 0.150 — all comfortably inside the ≥1:1 realtime target,
+  consistent with M2's earlier from-a-real-book English RTF ~0.30 measurement (this run's lower number
+  reflects a fixed, non-book-formatting-heavy benchmark passage rather than a regression). Recorded in
+  a new "Measured performance" section in `README.md`, per this card's own acceptance line, including
+  the reproduction command. No pytest coverage was added — `scripts/bench.py`, like the pre-existing
+  `scripts/render_book.py` and `scripts/fetch_models.py`, is verified by direct execution against the
+  real backend rather than unit-tested, the same convention KANBAN's M2-10/M0-5 entries already
+  established for this project's standalone scripts.
 
 ### M5 — Publishing (all 9 cards) — 🎯 G4 achieved
 
@@ -587,3 +640,4 @@ grey those formats out up front. `@app.on_event` was migrated to a `lifespan` ha
 | `\b` doesn't work at a digit/CJK or digit/symbol boundary | Python's `re` treats CJK characters as `\w`, so `\b` never fires between a digit run and a following Chinese character — use `(?<!\d)...(?!\d)` for CJK number boundaries instead. Separately, `\b` right after a symbol like `€` can also never match (symbol-then-punctuation is `\W`-to-`\W`) — found via two independent bugs in [M4-4]/[M4-3]. |
 | Polish/German numeral declension is out of scope, by design | Both decline by grammatical case and gender/animacy — correct agreement needs knowing what noun a number modifies and parsing sentence-level case, a morphological-analysis problem beyond a text normalizer. Both emit one citation form; documented explicitly in each module's docstring, not silently accepted. |
 | Lexicon substitution runs before normalization/segmentation | Makes "editing an entry invalidates only the chunks it affects" true for free — a chunk's cache key is a hash of its exact final text, so an unaffected chunk's key (and cached audio) never changes. No separate cache-versioning scheme needed. Verified end-to-end in [M4-6]. |
+| Any script-level (not just test-fixture) code that sets `AUDIOBOOK_DATA_DIR`/similar env state before using `ProcessPoolExecutor` must guard that setup with `if __name__ == "__main__":` | On Windows, `spawn` re-imports the entry script in every worker process with `__name__ == "__mp_main__"`, not `"__main__"`. Unguarded top-level side effects (e.g. `tempfile.mkdtemp()` + an `os.environ` assignment) re-run in each worker too, overwriting its own correctly-*inherited* copy of the env var with a fresh, different value — silently splitting cache reads/writes across processes. Found in [M6-1]'s `bench.py`; the same root mechanism as the pre-existing "stdin heredocs don't mix with multiprocessing on Windows" finding above, just a different symptom. |

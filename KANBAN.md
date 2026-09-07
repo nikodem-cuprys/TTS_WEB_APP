@@ -25,11 +25,6 @@ M5 Publishing → M6 Quality & perf → L Later
 
 ## 📋 Backlog
 
-### M6 — Quality & performance
-
-- **[M6-6] README + setup docs** — S
-  Windows install, ffmpeg + optional Calibre notes, first-run walkthrough, measured RTF.
-
 ### L — Later (post-v1)
 
 - **[L-1] Voice cloning — "Studio (slow)" tier** — XL
@@ -79,7 +74,7 @@ M5 Publishing → M6 Quality & perf → L Later
 
 ## ✔️ Done
 
-### M6 — Quality & performance (4 of 6 cards so far: M6-1, M6-3, M6-4, M6-5)
+### M6 — Quality & performance (5 of 6 cards so far: M6-1, M6-3, M6-4, M6-5, M6-6)
 
 - **[M6-1] bench.py + RTF gate** — M · M4-* — `scripts/bench.py` renders a fixed ~5-minute passage
   per language through the **real production pipeline** (`pipeline.runner.run_job()` — pooled
@@ -252,6 +247,22 @@ M5 Publishing → M6 Quality & perf → L Later
   session — the same quirk noted in [M6-4]) — real user data was present on that server by this point
   (the user has started using the app this session), so verification stayed to non-destructive
   requests (a 404 retry, a disk-usage read) rather than creating jobs against their real books.
+
+- **[M6-6] README + setup docs** — S — closed every gap the card names, README-only. Added a
+  **Windows install** section with real, individually-verified `winget` package IDs (`Python.Python.
+  3.11`, `OpenJS.NodeJS.LTS`, `Gyan.FFmpeg`, `calibre.calibre`) — checked against real `winget search`
+  output on this machine rather than assumed, since a wrong package ID in setup docs is worse than no
+  docs at all; also flags the "installers don't update your current terminal's `PATH`" gotcha, since
+  that's the step that actually trips people up. A **First run** walkthrough (upload → chapter review
+  → render config → live progress → download/retry → Settings) documents the real UI as it exists
+  today, cross-checked against the actual frontend source rather than described from memory — caught
+  and corrected one real inaccuracy in a first draft (called Settings part of a "top nav"; the app
+  actually has a left sidebar, per `AppShell.tsx`) and one wrong number (guessed "~1.1 GB" for the
+  model download; the real manifest total, cross-checked against this session's own live
+  `/api/settings/disk-usage` reading, is ~570 MB). **Measured performance** ([M6-1]'s RTF table) was
+  already in place from that card. No test suite applies to a documentation-only change; verified by
+  re-reading the finished section against the real running app and source rather than by any
+  automated check.
 
 ### M5 — Publishing (all 9 cards) — 🎯 G4 achieved
 

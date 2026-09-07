@@ -60,6 +60,22 @@ def write_wav(path: Path, samples: np.ndarray, sample_rate: int) -> Path:
     return path
 
 
+def extract_wav_range(input_wav: Path, output_wav: Path, start_s: float, end_s: float) -> Path:
+    """Losslessly extracts `[start_s, end_s)` from a WAV via direct sample-index slicing
+    (soundfile) rather than ffmpeg `-ss`/`-to` — exact, with no seek-accuracy caveats.
+    Used by [M5-8]'s part splitting to cut a chapter-aligned range from the mastered
+    track before per-part encoding."""
+    output_wav.parent.mkdir(parents=True, exist_ok=True)
+    with sf.SoundFile(str(input_wav)) as f:
+        sample_rate = f.samplerate
+        start_frame = max(0, round(start_s * sample_rate))
+        end_frame = min(f.frames, round(end_s * sample_rate))
+        f.seek(start_frame)
+        samples = f.read(frames=max(0, end_frame - start_frame), dtype="float32")
+    sf.write(str(output_wav), samples, sample_rate)
+    return output_wav
+
+
 def encode_mp3(
     input_wav: Path,
     output_mp3: Path,

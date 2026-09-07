@@ -199,6 +199,36 @@ def test_create_job_defaults_video_style_to_static(client, uploaded_book_id):
     client.post(f"/api/jobs/{resp.json()['id']}/cancel")  # don't leave a render running past the test
 
 
+@pytest.mark.slow
+def test_split_mp4_parts_are_reachable_via_the_part_query_param(client, uploaded_book_id):
+    """[M5-8]: a tiny mp4_part_limit_s (set through the real /api/settings endpoint, the
+    same knob the Settings page uses) forces the 2-chapter fixture book to split into 2
+    real MP4 parts; the download endpoint's artifacts summary stays deduplicated to one
+    "mp4" entry, and ?part=N reaches each individual part."""
+    settings_resp = client.put("/api/settings", json={"mp4_part_limit_s": 1.0})
+    assert settings_resp.status_code == 200
+
+    resp = client.post(f"/api/books/{uploaded_book_id}/jobs", json={"voice": "af_heart", "formats": ["mp4"]})
+    assert resp.status_code == 201
+    final = _poll_until_terminal(client, resp.json()["id"])
+    assert final["status"] == "done", final
+    assert final["artifacts"] == ["mp4"]  # deduplicated, not one "mp4" entry per part
+
+    part1 = client.get(f"/api/jobs/{final['id']}/artifacts/mp4/download")
+    assert part1.status_code == 200
+    assert part1.headers["content-type"] == "video/mp4"
+
+    part1_explicit = client.get(f"/api/jobs/{final['id']}/artifacts/mp4/download?part=1")
+    assert part1_explicit.content == part1.content  # no ?part= defaults to part 1
+
+    part2 = client.get(f"/api/jobs/{final['id']}/artifacts/mp4/download?part=2")
+    assert part2.status_code == 200
+    assert part2.content != part1.content  # a genuinely different file, not the same one twice
+
+    missing_part = client.get(f"/api/jobs/{final['id']}/artifacts/mp4/download?part=99")
+    assert missing_part.status_code == 404
+
+
 def test_download_unproduced_artifact_format_returns_404(client, uploaded_book_id):
     resp = client.post(f"/api/books/{uploaded_book_id}/jobs", json={"voice": "af_heart"})
     job_id = resp.json()["id"]

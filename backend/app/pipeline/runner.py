@@ -34,6 +34,7 @@ from ..audio.encode import (
     encode_mp3,
     encode_opus,
     encode_wav,
+    extract_wav_range,
     write_wav,
 )
 from ..audio.loudness import normalize_loudness
@@ -41,6 +42,7 @@ from ..config import get_settings
 from ..models import Book, Chapter, Job, JobArtifact, JobStage, JobStatus, LexiconEntry, Segment
 from ..pipeline import cache
 from ..publish.chapters_txt import build_youtube_description
+from ..publish.split import DEFAULT_PART_LIMIT_S, part_filename, part_title, split_into_parts
 from ..publish.subtitles import SubtitleCue, to_srt, to_vtt
 from ..text.lexicon import apply_lexicon
 from ..text.normalize import get_version as normalizer_version
@@ -214,6 +216,7 @@ def run_job(
     loudness_target_i: float = loudness.DEFAULT_TARGET_I,
     loudness_target_tp: float = loudness.DEFAULT_TARGET_TP,
     loudness_target_lra: float = loudness.DEFAULT_TARGET_LRA,
+    mp4_part_limit_s: float = DEFAULT_PART_LIMIT_S,
 ) -> Path:
     settings = get_settings()
     book = session.get(Book, job.book_id)
@@ -369,11 +372,49 @@ def run_job(
                 path = settings.output_dir() / f"{base_name}.vtt"
                 path.write_text(to_vtt(subtitle_cues), encoding="utf-8")
             elif fmt == "mp4":
-                path = settings.output_dir() / f"{base_name}.mp4"
-                render_mp4(
-                    mastered_wav, path, style=job.video_style, cover_path=cover_path,
-                    title=book.title, artist=book.author,
-                )
+                # [M5-8]: a book whose track exceeds mp4_part_limit_s (YouTube's 12h cap,
+                # by default) is split chapter-aligned into several MP4s instead of one —
+                # each its own JobArtifact row sharing format="mp4", distinguished by
+                # part_index/part_total. A book under the limit produces exactly the
+                # same single, plainly-named file as before this card.
+                if chapter_markers is None:
+                    chapter_markers = _build_chapter_markers(chapters, segments)
+                parts = split_into_parts(chapter_markers, limit_s=mp4_part_limit_s)
+                if not parts:
+                    # degenerate case: no chapter produced any segments at all (e.g.
+                    # every block normalized to empty text) — nothing to split on, so
+                    # fall back to a single whole-track file exactly like before this
+                    # card, rather than silently producing zero mp4 artifacts.
+                    part_path = settings.output_dir() / f"{base_name}.mp4"
+                    render_mp4(
+                        mastered_wav, part_path, style=job.video_style, cover_path=cover_path,
+                        title=book.title, artist=book.author,
+                    )
+                    artifact_rows.append(JobArtifact(job_id=job.id, format=fmt, path=str(part_path)))
+                    if primary_path is None:
+                        primary_path = part_path
+                    continue
+                total_parts = len(parts)
+                for part in parts:
+                    part_path = settings.output_dir() / part_filename(base_name, "mp4", part.index, total_parts)
+                    part_wav = mastered_wav
+                    if total_parts > 1:
+                        part_wav = settings.cache_dir() / f"job_{job.id}_mp4_part{part.index}.wav"
+                        extract_wav_range(mastered_wav, part_wav, part.start_s, part.end_s)
+                    render_mp4(
+                        part_wav, part_path, style=job.video_style, cover_path=cover_path,
+                        title=part_title(book.title, part.index, total_parts), artist=book.author,
+                    )
+                    artifact_rows.append(
+                        JobArtifact(
+                            job_id=job.id, format=fmt, path=str(part_path),
+                            part_index=part.index if total_parts > 1 else None,
+                            part_total=total_parts if total_parts > 1 else None,
+                        )
+                    )
+                    if primary_path is None:
+                        primary_path = part_path
+                continue
             elif fmt == "chapters":
                 if chapter_markers is None:
                     chapter_markers = _build_chapter_markers(chapters, segments)

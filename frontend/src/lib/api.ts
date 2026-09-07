@@ -101,6 +101,7 @@ export type SettingsValues = {
   loudness_target_i: number
   loudness_target_tp: number
   loudness_target_lra: number
+  mp4_part_limit_s: number
   output_dir: string
   models_dir: string
 }

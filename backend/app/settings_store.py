@@ -7,6 +7,7 @@ from sqlmodel import Session, select
 
 from .audio import loudness
 from .models import Setting
+from .publish.split import DEFAULT_PART_LIMIT_S
 from .tts.pool import DEFAULT_WORKERS
 
 DEFAULTS: dict[str, str] = {
@@ -14,6 +15,7 @@ DEFAULTS: dict[str, str] = {
     "loudness_target_i": str(loudness.DEFAULT_TARGET_I),
     "loudness_target_tp": str(loudness.DEFAULT_TARGET_TP),
     "loudness_target_lra": str(loudness.DEFAULT_TARGET_LRA),
+    "mp4_part_limit_s": str(DEFAULT_PART_LIMIT_S),
 }
 
 
@@ -35,6 +37,7 @@ def get_typed(session: Session) -> dict[str, int | float]:
         "loudness_target_i": float(values["loudness_target_i"]),
         "loudness_target_tp": float(values["loudness_target_tp"]),
         "loudness_target_lra": float(values["loudness_target_lra"]),
+        "mp4_part_limit_s": float(values["mp4_part_limit_s"]),
     }
 
 

@@ -34,6 +34,7 @@ def test_get_settings_returns_defaults(client):
     assert body["loudness_target_i"] == -19.0
     assert body["loudness_target_tp"] == -3.0
     assert body["loudness_target_lra"] == 7.0
+    assert body["mp4_part_limit_s"] == 11 * 3600 + 45 * 60
     assert body["output_dir"]
     assert body["models_dir"]
 
@@ -54,6 +55,18 @@ def test_put_settings_updates_and_persists(client):
 
 def test_put_settings_rejects_invalid_worker_count(client):
     resp = client.put("/api/settings", json={"tts_workers": 0})
+    assert resp.status_code == 422
+
+
+def test_put_settings_updates_mp4_part_limit(client):
+    resp = client.put("/api/settings", json={"mp4_part_limit_s": 3600.0})
+    assert resp.status_code == 200
+    assert resp.json()["mp4_part_limit_s"] == 3600.0
+    assert client.get("/api/settings").json()["mp4_part_limit_s"] == 3600.0
+
+
+def test_put_settings_rejects_non_positive_mp4_part_limit(client):
+    resp = client.put("/api/settings", json={"mp4_part_limit_s": 0})
     assert resp.status_code == 422
 
 

@@ -67,9 +67,6 @@ M5 Publishing → M6 Quality & perf → L Later
 
 ### M5 — Publishing
 
-- **[M5-8] Part splitting under 12 h** — M · M5-3
-  Chapter-aligned splits at a configurable limit (default 11 h 45 m), consistent part naming.
-
 - **[M5-9] 🎯 G4 — Exports API + download UI** — S · M5-1…M5-8
   ✅ Every artifact for a finished book is downloadable from one panel.
 
@@ -89,7 +86,7 @@ M5 Publishing → M6 Quality & perf → L Later
 
 ## ✔️ Done
 
-### M5 — Publishing (7 of 9 cards so far: M5-1, M5-2, M5-3, M5-4, M5-5, M5-6, M5-7)
+### M5 — Publishing (8 of 9 cards so far: M5-1, M5-2, M5-3, M5-4, M5-5, M5-6, M5-7, M5-8)
 
 A single job can now request any combination of `mp3,m4b,opus,flac,wav,srt,vtt,mp4` — each format is
 produced from the one already-mastered WAV (no format-specific re-synthesis) and recorded as a new
@@ -251,6 +248,48 @@ the project's "say so if you can't test the UI" rule rather than claimed as done
   Frontend verified via a clean `tsc -b && vite build` and `oxlint` pass (same pre-existing,
   unrelated `Render.tsx` warning; no actual browser session, same Chrome-extension-unavailable
   caveat as the rest of this M5 session).
+
+- **[M5-8] Part splitting under 12 h** — M · M5-3 — a new `publish/split.py` greedily packs a
+  book's `ChapterMarker` list (the same one [M5-1]/[M5-7] already compute) into chapter-aligned
+  "parts": it keeps adding the next chapter to the current part until doing so would push the part
+  past `mp4_part_limit_s` (default 11h45m, 15 minutes under YouTube's 12h cap), then starts a new
+  part — a part never cuts a chapter in half, and a single chapter longer than the limit on its own
+  still becomes its own (over-limit) part rather than being split mid-chapter, which would break its
+  own marker. Scoped to **MP4 only**, not every format (matching the card's own `M5-3` dependency,
+  and PLAN.md's framing of this feature as specifically for YouTube's cap) — M4B/MP3/etc. single
+  files aren't platform-capped the way a YouTube upload is, and splitting them too would have meant
+  reworking `output_path`/`/download`/`/stream`'s long-standing single-file assumptions for no real
+  benefit. Chapter-range extraction from the mastered WAV uses `audio/encode.py`'s new
+  `extract_wav_range()` — direct `soundfile` sample-index slicing rather than ffmpeg `-ss`/`-to`,
+  which sidesteps seek-accuracy caveats entirely (WAV is uncompressed PCM, so sample-index slicing is
+  always exact). `JobArtifact` gained nullable `part_index`/`part_total` columns so a split format can
+  have several rows sharing one `format` string; every other format leaves both `None`, and an
+  unsplit MP4 (the common case) is byte-for-byte the same single, plainly-named file as before this
+  card — splitting must never rename a book's output when it doesn't actually apply. The limit is a
+  real Settings-page-backed value (`mp4_part_limit_s`, alongside the pre-existing worker-count/
+  loudness settings), not a hardcoded constant, so "configurable" per the card's own description is
+  literal, not just "a function parameter nobody can reach." The jobs API's artifact-download endpoint
+  gained `?part=N` (1-based, defaulting to part 1 when omitted) to reach each part; `JobOut.artifacts`
+  stays a deduplicated format list (a 3-part MP4 job still reports one `"mp4"` entry, not three) so
+  the pre-existing per-format download-button loop keeps working without changes — a fully
+  multi-part-aware download panel is explicitly [M5-9]'s job, not this card's.
+  ✅ Verified concretely, real synthesis end to end, not just the grouping logic in isolation: 11 new
+  `test_split.py` cases cover the packing/rebasing/naming logic against synthetic markers (including
+  a never-cuts-a-chapter check and a degenerate zero/negative-limit input), 2 new
+  `test_loudness_encode.py` cases confirm `extract_wav_range()` is sample-accurate (compared directly
+  against the source array, not just "the right approximate length") and correctly clamps an
+  out-of-range end time, and a `@pytest.mark.slow` pipeline test forces the real 2-chapter fixture
+  book to actually split (via a tiny `mp4_part_limit_s=1.0`) and confirms each part is a real,
+  independently-valid MP4 whose *durations sum back to* the same book rendered unsplit (proving the
+  split lost or duplicated no audio at the chapter boundary), with consistent `"Book - Part N of
+  M.mp4"` naming. A second `@pytest.mark.slow` API-level test drives the real HTTP surface — sets the
+  tiny limit through the real `PUT /api/settings` endpoint (the same one the Settings page calls, not
+  a backdoor), confirms the deduplicated `artifacts` list, and confirms `?part=1`/`?part=2` each
+  return a genuinely different real file while an out-of-range part 404s. Full backend suite: 229
+  passed (up from 212). Frontend (`Settings.tsx` gained an "MP4 part limit (hours)" field, seconds
+  ↔ hours converted at the input boundary) verified via a clean `tsc -b && vite build` and `oxlint`
+  pass (same pre-existing, unrelated `Render.tsx` warning; no actual browser session, same
+  Chrome-extension-unavailable caveat as the rest of this M5 session).
 
 ### M4 — Multi-language (all 6 cards) — 🎯 G3 achieved
 

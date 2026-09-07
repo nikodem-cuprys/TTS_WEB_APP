@@ -115,12 +115,17 @@ class Segment(SQLModel, table=True):
 
 class JobArtifact(SQLModel, table=True):
     """One exported file produced by a finished job's export stage (mp3/m4b/opus/
-    flac/wav/srt/vtt) — a job can produce several, one per requested format."""
+    flac/wav/srt/vtt/mp4/chapters) — a job can produce several, one per requested
+    format. A format whose track exceeded [M5-8]'s part-duration limit (currently only
+    mp4, for YouTube's upload cap) produces several rows sharing that same `format`,
+    distinguished by `part_index`/`part_total`; every other format leaves both `None`."""
 
     id: int | None = Field(default=None, primary_key=True)
     job_id: int = Field(foreign_key="job.id")
     format: str
     path: str
+    part_index: int | None = None  # 1-based
+    part_total: int | None = None
 
     job: Job = Relationship(back_populates="artifacts")
 

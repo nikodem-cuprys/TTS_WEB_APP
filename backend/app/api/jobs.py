@@ -7,7 +7,7 @@ import asyncio
 import threading
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 from sqlmodel import Session
@@ -77,11 +77,17 @@ def _job_out(job: Job) -> JobOut:
             JobStageOut(name=s.name, status=s.status, progress=s.progress)
             for s in sorted(job.stages, key=lambda s: s.id or 0)
         ],
-        artifacts=[a.format for a in sorted(job.artifacts, key=lambda a: a.id or 0)],
+        # a format split into several parts ([M5-8]'s mp4 splitting) produces several
+        # JobArtifact rows sharing one format string — deduplicated here (order
+        # preserved) since this summary is just "which formats exist", not a full part
+        # listing; /jobs/{id}/artifacts/{format}/download's ?part= reaches each one.
+        artifacts=list(dict.fromkeys(a.format for a in sorted(job.artifacts, key=lambda a: a.id or 0))),
     )
 
 
-def _run_in_background(job_id: int, workers: int, loudness_i: float, loudness_tp: float, loudness_lra: float) -> None:
+def _run_in_background(
+    job_id: int, workers: int, loudness_i: float, loudness_tp: float, loudness_lra: float, mp4_part_limit_s: float,
+) -> None:
     with new_session() as session:
         job = session.get(Job, job_id)
         if job is None:
@@ -90,6 +96,7 @@ def _run_in_background(job_id: int, workers: int, loudness_i: float, loudness_tp
             run_job(
                 session, job, workers=workers,
                 loudness_target_i=loudness_i, loudness_target_tp=loudness_tp, loudness_target_lra=loudness_lra,
+                mp4_part_limit_s=mp4_part_limit_s,
             )
         except Exception:
             pass  # run_job() already recorded the failure/cancellation on the job row
@@ -147,6 +154,7 @@ def create_render_job(book_id: int, body: CreateJobRequest, session: Session = D
         args=(
             job.id, typed["tts_workers"],
             typed["loudness_target_i"], typed["loudness_target_tp"], typed["loudness_target_lra"],
+            typed["mp4_part_limit_s"],
         ),
         daemon=True,
     )
@@ -215,16 +223,35 @@ def stream_job(job_id: int, session: Session = Depends(get_session)) -> FileResp
 
 
 @router.get("/jobs/{job_id}/artifacts/{format}/download")
-def download_job_artifact(job_id: int, format: str, session: Session = Depends(get_session)) -> FileResponse:
+def download_job_artifact(
+    job_id: int, format: str, part: int | None = Query(default=None, ge=1),
+    session: Session = Depends(get_session),
+) -> FileResponse:
     """Downloads one specific exported format for a job — e.g. the M4B alongside the
     MP3, or the SRT/VTT subtitle file. `/download` (above) stays MP3-only for
-    backward compatibility with the original single-format download button."""
+    backward compatibility with the original single-format download button.
+
+    A format [M5-8] split into several parts (currently only ever `mp4`, when a book's
+    track exceeds `mp4_part_limit_s`) has more than one JobArtifact row sharing this
+    `format`; `?part=N` (1-based) picks one, defaulting to part 1 when omitted so this
+    endpoint still resolves to *something* even before a caller knows how many parts
+    exist."""
     job = session.get(Job, job_id)
     if job is None:
         raise HTTPException(status_code=404, detail="job not found")
-    artifact = next((a for a in job.artifacts if a.format == format), None)
-    if artifact is None:
+    matching = sorted(
+        (a for a in job.artifacts if a.format == format), key=lambda a: a.part_index or 1,
+    )
+    if not matching:
         raise HTTPException(status_code=404, detail=f"format {format!r} was not produced for this job")
+    if part is None:
+        artifact = matching[0]
+    else:
+        artifact = next((a for a in matching if (a.part_index or 1) == part), None)
+        if artifact is None:
+            raise HTTPException(
+                status_code=404, detail=f"format {format!r} has no part {part} for this job",
+            )
     path = Path(artifact.path)
     if not path.is_file():
         raise HTTPException(status_code=404, detail="output file is missing")

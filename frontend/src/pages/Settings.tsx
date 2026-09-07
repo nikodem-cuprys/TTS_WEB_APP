@@ -44,6 +44,7 @@ export default function Settings() {
         loudness_target_i: draft.loudness_target_i,
         loudness_target_tp: draft.loudness_target_tp,
         loudness_target_lra: draft.loudness_target_lra,
+        mp4_part_limit_s: draft.mp4_part_limit_s,
       })
       setSettings(updated)
       setDraft(updated)
@@ -105,6 +106,17 @@ export default function Settings() {
                   step={0.5}
                   value={draft.loudness_target_lra}
                   onChange={(e) => setDraft({ ...draft, loudness_target_lra: Number(e.target.value) })}
+                  className="w-20 rounded border border-border bg-elevated px-2 py-1 text-right text-sm text-text"
+                />
+              </label>
+              <label className="flex items-center justify-between gap-4">
+                <span className="text-sm text-text-2">MP4 part limit (hours)</span>
+                <input
+                  type="number"
+                  min={0.25}
+                  step={0.25}
+                  value={Math.round((draft.mp4_part_limit_s / 3600) * 100) / 100}
+                  onChange={(e) => setDraft({ ...draft, mp4_part_limit_s: Number(e.target.value) * 3600 })}
                   className="w-20 rounded border border-border bg-elevated px-2 py-1 text-right text-sm text-text"
                 />
               </label>

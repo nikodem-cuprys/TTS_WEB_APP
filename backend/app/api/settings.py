@@ -23,6 +23,7 @@ class SettingsOut(BaseModel):
     loudness_target_i: float
     loudness_target_tp: float
     loudness_target_lra: float
+    mp4_part_limit_s: float
     output_dir: str
     models_dir: str
 
@@ -32,6 +33,7 @@ class SettingsUpdate(BaseModel):
     loudness_target_i: float | None = None
     loudness_target_tp: float | None = None
     loudness_target_lra: float | None = None
+    mp4_part_limit_s: float | None = None
 
 
 class DiskUsageOut(BaseModel):
@@ -70,6 +72,8 @@ def update_settings_values(
     updates = {k: v for k, v in body.model_dump().items() if v is not None}
     if "tts_workers" in updates and updates["tts_workers"] < 1:
         raise HTTPException(status_code=422, detail="tts_workers must be at least 1")
+    if "mp4_part_limit_s" in updates and updates["mp4_part_limit_s"] <= 0:
+        raise HTTPException(status_code=422, detail="mp4_part_limit_s must be positive")
 
     settings_store.set_many(session, {k: str(v) for k, v in updates.items()})
 

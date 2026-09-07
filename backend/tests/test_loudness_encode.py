@@ -11,6 +11,7 @@ from app.audio.encode import (
     encode_mp3,
     encode_opus,
     encode_wav,
+    extract_wav_range,
     write_wav,
 )
 from app.audio.loudness import DEFAULT_TARGET_I, LoudnormError, normalize_loudness
@@ -149,6 +150,34 @@ def test_encode_flac_produces_lossless_file_with_tags(tmp_path):
     tags = {k.lower(): v for k, v in info["format"]["tags"].items()}
     assert tags["title"] == "T"
     assert float(info["format"]["duration"]) == pytest.approx(2.0, abs=0.1)
+
+
+def test_extract_wav_range_slices_the_requested_span(tmp_path):
+    import soundfile as sf
+
+    samples = _sine(4.0)
+    wav = write_wav(tmp_path / "in.wav", samples, SR)
+    out = extract_wav_range(wav, tmp_path / "part.wav", 1.0, 3.0)
+    assert out.is_file()
+
+    sliced, sr = sf.read(str(out))
+    assert sr == SR
+    assert len(sliced) == pytest.approx(2.0 * SR, abs=2)
+    # sample-accurate, not just approximately right: the slice really is the original's
+    # own [1s, 3s) samples, not a re-synthesized or silence-padded stand-in.
+    expected = samples[int(1.0 * SR):int(1.0 * SR) + len(sliced)]
+    assert np.allclose(sliced, expected, atol=1e-4)
+
+
+def test_extract_wav_range_clamps_an_end_past_the_file_length(tmp_path):
+    samples = _sine(2.0)
+    wav = write_wav(tmp_path / "in.wav", samples, SR)
+    out = extract_wav_range(wav, tmp_path / "part.wav", 1.0, 10.0)
+
+    import soundfile as sf
+
+    sliced, _ = sf.read(str(out))
+    assert len(sliced) == pytest.approx(1.0 * SR, abs=2)
 
 
 def test_encode_wav_remuxes_with_tags(tmp_path):

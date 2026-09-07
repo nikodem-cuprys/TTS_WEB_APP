@@ -16,6 +16,7 @@ from app.pipeline.runner import (
     JobCancelledError,
     _build_chapter_markers,
     _build_subtitle_cues,
+    _safe_filename,
     create_job,
     run_job,
 )
@@ -379,3 +380,53 @@ def test_run_job_honors_a_non_default_video_style(db_session, epub_path):
     # signal that the "waveform" style, not the "static" default, actually rendered.
     num, den = video_stream["r_frame_rate"].split("/")
     assert float(num) / float(den) == pytest.approx(24.0, abs=1.0)
+
+
+@pytest.mark.slow
+def test_run_job_splits_mp4_into_chapter_aligned_parts_when_over_the_limit(db_session, epub_path):
+    """[M5-8]: a small `mp4_part_limit_s` forces the same real 2-chapter book used
+    elsewhere in this file to actually split — one chapter's worth of real Kokoro
+    synthesis easily exceeds a 1-second limit, so each chapter becomes its own part."""
+    from app.ingest.epub import EpubParser
+
+    document = EpubParser().parse(epub_path)
+    book = persist_document(db_session, document, epub_path, "epub")
+    enabled_chapter_count = len([c for c in book.chapters if c.enabled])
+
+    split_job = create_job(db_session, book, voice="af_heart", speed=1.0, formats=["mp4"])
+    run_job(db_session, split_job, workers=2, mp4_part_limit_s=1.0)
+    db_session.refresh(split_job)
+    assert split_job.status == JobStatus.done
+
+    mp4_artifacts = sorted((a for a in split_job.artifacts if a.format == "mp4"), key=lambda a: a.part_index)
+    assert len(mp4_artifacts) == enabled_chapter_count
+    total_parts = len(mp4_artifacts)
+
+    split_duration_sum = 0.0
+    for artifact in mp4_artifacts:
+        assert artifact.part_total == total_parts
+        path = Path(artifact.path)
+        assert path.is_file()
+        # consistent, self-describing part naming — not just "did a file get written."
+        assert path.name == f"{_safe_filename(book.title)} - Part {artifact.part_index} of {total_parts}.mp4"
+
+        info = json.loads(subprocess.run(
+            ["ffprobe", "-hide_banner", "-v", "quiet", "-print_format", "json", "-show_format", "-show_streams",
+             str(path)],
+            capture_output=True, text=True,
+        ).stdout)
+        kinds = {s["codec_type"] for s in info["streams"]}
+        assert kinds == {"video", "audio"}
+        duration = float(info["format"]["duration"])
+        assert duration > 0.1
+        split_duration_sum += duration
+
+    # cross-check against the same book rendered *without* splitting (same voice/speed,
+    # so this hits the chunk cache — cheap, no re-synthesis): the parts' durations must
+    # sum back to the whole track, proving the split lost or duplicated no audio at the
+    # chapter boundary.
+    unsplit_job = create_job(db_session, book, voice="af_heart", speed=1.0, formats=["mp4"])
+    run_job(db_session, unsplit_job, workers=2)
+    db_session.refresh(unsplit_job)
+    unsplit_path = next(a.path for a in unsplit_job.artifacts if a.format == "mp4")
+    assert split_duration_sum == pytest.approx(_probe_duration(unsplit_path), abs=1.0)

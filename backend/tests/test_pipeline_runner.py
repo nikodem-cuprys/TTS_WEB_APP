@@ -277,16 +277,17 @@ def test_build_subtitle_cues_sorts_by_index_and_skips_blank_or_unsynced_segments
 
 @pytest.mark.slow
 def test_run_job_produces_every_requested_export_format(db_session, epub_path):
-    """[M5-1]/[M5-2]/[M5-3]/[M5-5]/[M5-6]: one job can request MP3+M4B+Opus+FLAC+WAV+
-    SRT+VTT+MP4 in a single render, and every format is both recorded as a JobArtifact
-    and a real, playable/parseable file — including working M4B chapter markers, SRT/
-    VTT cues that line up with the real segment timings, and an MP4 whose duration
-    matches the mastered audio. This fixture book has no cover of its own, so this also
-    exercises the [M5-5] Pillow-generated fallback cover being embedded in both the MP3
-    (attached_pic) and the MP4 (video track)."""
+    """[M5-1]/[M5-2]/[M5-3]/[M5-5]/[M5-6]/[M5-7]: one job can request MP3+M4B+Opus+FLAC+
+    WAV+SRT+VTT+MP4+chapters in a single render, and every format is both recorded as a
+    JobArtifact and a real, playable/parseable file — including working M4B chapter
+    markers, SRT/VTT cues that line up with the real segment timings, an MP4 whose
+    duration matches the mastered audio, and a YouTube chapters/description text file
+    whose timestamps agree with the M4B's own chapter markers. This fixture book has no
+    cover of its own, so this also exercises the [M5-5] Pillow-generated fallback cover
+    being embedded in both the MP3 (attached_pic) and the MP4 (video track)."""
     from app.ingest.epub import EpubParser
 
-    all_formats = ["mp3", "m4b", "opus", "flac", "wav", "srt", "vtt", "mp4"]
+    all_formats = ["mp3", "m4b", "opus", "flac", "wav", "srt", "vtt", "mp4", "chapters"]
     document = EpubParser().parse(epub_path)
     book = persist_document(db_session, document, epub_path, "epub")
 
@@ -313,6 +314,14 @@ def test_run_job_produces_every_requested_export_format(db_session, epub_path):
     m4b_chapters = json.loads(m4b_chapters_probe.stdout)["chapters"]
     assert len(m4b_chapters) == len([c for c in book.chapters if c.enabled])
     assert m4b_chapters[0]["tags"]["title"] == sorted(book.chapters, key=lambda c: c.index)[0].title
+
+    chapters_txt = open(artifacts["chapters"], encoding="utf-8").read()
+    assert chapters_txt.startswith(f"{book.title}\n")
+    assert book.author in chapters_txt
+    assert "0:00 " in chapters_txt  # YouTube requires the first chapter to start at 0:00
+    assert m4b_chapters[0]["tags"]["title"] in chapters_txt
+    if len(m4b_chapters) > 1:
+        assert m4b_chapters[1]["tags"]["title"] in chapters_txt
 
     srt_text = open(artifacts["srt"], encoding="utf-8").read()
     assert srt_text.startswith("1\n")

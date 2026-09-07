@@ -40,6 +40,7 @@ from ..audio.loudness import normalize_loudness
 from ..config import get_settings
 from ..models import Book, Chapter, Job, JobArtifact, JobStage, JobStatus, LexiconEntry, Segment
 from ..pipeline import cache
+from ..publish.chapters_txt import build_youtube_description
 from ..publish.subtitles import SubtitleCue, to_srt, to_vtt
 from ..text.lexicon import apply_lexicon
 from ..text.normalize import get_version as normalizer_version
@@ -53,7 +54,7 @@ from ..video.render import VIDEO_STYLES, render_mp4
 STAGE_NAMES = ["prepare", "synthesize", "assemble", "master", "export"]
 #: every export format the pipeline knows how to produce — validated against at the
 #: API boundary (POST /api/books/{id}/jobs) and looped over in run_job()'s export stage.
-SUPPORTED_EXPORT_FORMATS = {"mp3", "m4b", "opus", "flac", "wav", "srt", "vtt", "mp4"}
+SUPPORTED_EXPORT_FORMATS = {"mp3", "m4b", "opus", "flac", "wav", "srt", "vtt", "mp4", "chapters"}
 DEFAULT_EXPORT_FORMATS = ["mp3"]
 _SAFE_NAME_RE = re.compile(r"[^A-Za-z0-9 ._-]+")
 #: chunks per pool.synth_many() call in the synthesize stage — small enough that a
@@ -373,6 +374,12 @@ def run_job(
                     mastered_wav, path, style=job.video_style, cover_path=cover_path,
                     title=book.title, artist=book.author,
                 )
+            elif fmt == "chapters":
+                if chapter_markers is None:
+                    chapter_markers = _build_chapter_markers(chapters, segments)
+                path = settings.output_dir() / f"{base_name}.chapters.txt"
+                description = build_youtube_description(chapter_markers, title=book.title, author=book.author)
+                path.write_text(description, encoding="utf-8")
             else:
                 raise PipelineError(f"unsupported export format: {fmt!r}")
 

@@ -67,9 +67,6 @@ M5 Publishing → M6 Quality & perf → L Later
 
 ### M5 — Publishing
 
-- **[M5-7] YouTube chapter timestamps + description** — S · M2-7
-  `00:00 Chapter 1` block, ready to paste.
-
 - **[M5-8] Part splitting under 12 h** — M · M5-3
   Chapter-aligned splits at a configurable limit (default 11 h 45 m), consistent part naming.
 
@@ -92,7 +89,7 @@ M5 Publishing → M6 Quality & perf → L Later
 
 ## ✔️ Done
 
-### M5 — Publishing (6 of 9 cards so far: M5-1, M5-2, M5-3, M5-4, M5-5, M5-6)
+### M5 — Publishing (7 of 9 cards so far: M5-1, M5-2, M5-3, M5-4, M5-5, M5-6, M5-7)
 
 A single job can now request any combination of `mp3,m4b,opus,flac,wav,srt,vtt,mp4` — each format is
 produced from the one already-mastered WAV (no format-specific re-synthesis) and recorded as a new
@@ -229,6 +226,31 @@ the project's "say so if you can't test the UI" rule rather than claimed as done
   (failed/未-synthesized) are skipped so they don't produce a bogus zero-duration or `None`-timed
   cue. Timestamp formatting (`HH:MM:SS,mmm` for SRT, `HH:MM:SS.mmm` for VTT) is covered by dedicated
   unit tests including an hour-boundary case and a defensively-clamped negative-input case.
+
+- **[M5-7] YouTube chapter timestamps + description** — S · M2-7 — a new
+  `publish/chapters_txt.py` (`build_youtube_description()`) reuses the exact same `ChapterMarker`
+  list [M5-1]'s M4B chapters and [M5-6]'s `_build_chapter_markers()` already compute — no separate
+  alignment step, same "genuinely free" pattern the rest of `publish/` follows. Output is a
+  ready-to-paste video description: book title, author, a blank line, then one `H:MM:SS Chapter
+  Title` (or `M:SS` under an hour) line per chapter — the exact format YouTube auto-detects as video
+  chapters, which requires the *first* line to read `0:00`; guaranteed here since
+  `_build_chapter_markers()` always starts from the first enabled chapter's first segment, which
+  always begins at t=0. Wired in as a ninth export format (`"chapters"`, `.chapters.txt`,
+  `text/plain`) through the same `SUPPORTED_EXPORT_FORMATS` / artifact-media-type / frontend-label
+  pattern every format since [M5-2] has followed — computed purely from segment timing, so (unlike
+  MP4) it doesn't depend on which audio format was actually requested and needed no cover-art
+  involvement at all.
+  ✅ Verified concretely: 6 new `test_chapters_txt.py` cases cover minute/second formatting, the
+  hour-boundary switch to `H:MM:SS`, a defensively-clamped negative-timestamp input, and the
+  full title/author/chapters description assembly with and without an author. The existing
+  multi-format pipeline test now also requests `chapters` alongside the other 8 formats and confirms
+  the real output starts with the book's actual title, contains its actual author, starts its first
+  chapter line at `0:00`, and — cross-checked against the *M4B's own* `ffprobe`-read chapter titles,
+  not just re-deriving the same value the code under test would produce — that both real chapter
+  titles actually appear in the generated text. Full backend suite: 212 passed (up from 206).
+  Frontend verified via a clean `tsc -b && vite build` and `oxlint` pass (same pre-existing,
+  unrelated `Render.tsx` warning; no actual browser session, same Chrome-extension-unavailable
+  caveat as the rest of this M5 session).
 
 ### M4 — Multi-language (all 6 cards) — 🎯 G3 achieved
 

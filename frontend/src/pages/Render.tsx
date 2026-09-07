@@ -26,6 +26,7 @@ const FORMAT_LABELS: Record<ExportFormat, string> = {
   srt: 'SRT subtitles',
   vtt: 'VTT subtitles',
   mp4: 'MP4 (video)',
+  chapters: 'YouTube chapters + description',
 }
 
 const VIDEO_STYLE_LABELS: Record<VideoStyle, string> = {

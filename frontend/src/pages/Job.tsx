@@ -31,6 +31,7 @@ const ARTIFACT_LABELS: Record<ExportFormat, string> = {
   srt: 'SRT',
   vtt: 'VTT',
   mp4: 'MP4',
+  chapters: 'YouTube chapters',
 }
 
 function elapsedSeconds(job: JobType): number | null {

@@ -35,6 +35,7 @@ _ARTIFACT_MEDIA_TYPES = {
     "srt": "application/x-subrip",
     "vtt": "text/vtt",
     "mp4": "video/mp4",
+    "chapters": "text/plain",
 }
 
 

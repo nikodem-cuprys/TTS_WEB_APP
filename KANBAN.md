@@ -18,7 +18,7 @@ M5 Publishing → M6 Quality & perf → L Later
 | **G1** ✅ | An EPUB becomes an English MP3 audiobook from the CLI | `M2-10` |
 | **G2** ✅ | The whole flow works in the browser, no CLI needed | `M3-5` |
 | **G3** ✅ | All four languages render at acceptable quality | `M4-4` |
-| **G4** | Output is upload-ready: M4B + MP4 + SRT + timestamps | `M5-9` |
+| **G4** ✅ | Output is upload-ready: M4B + MP4 + SRT + timestamps | `M5-9` |
 | **G5** | Measured end-to-end RTF < 1.0, listening pass clean | `M6-2` |
 
 ---
@@ -65,10 +65,7 @@ M5 Publishing → M6 Quality & perf → L Later
 
 ## ✅ Ready
 
-### M5 — Publishing
-
-- **[M5-9] 🎯 G4 — Exports API + download UI** — S · M5-1…M5-8
-  ✅ Every artifact for a finished book is downloadable from one panel.
+*(M5 complete — see M6 in Backlog above)*
 
 ---
 
@@ -86,7 +83,7 @@ M5 Publishing → M6 Quality & perf → L Later
 
 ## ✔️ Done
 
-### M5 — Publishing (8 of 9 cards so far: M5-1, M5-2, M5-3, M5-4, M5-5, M5-6, M5-7, M5-8)
+### M5 — Publishing (all 9 cards) — 🎯 G4 achieved
 
 A single job can now request any combination of `mp3,m4b,opus,flac,wav,srt,vtt,mp4` — each format is
 produced from the one already-mastered WAV (no format-specific re-synthesis) and recorded as a new
@@ -290,6 +287,39 @@ the project's "say so if you can't test the UI" rule rather than claimed as done
   ↔ hours converted at the input boundary) verified via a clean `tsc -b && vite build` and `oxlint`
   pass (same pre-existing, unrelated `Render.tsx` warning; no actual browser session, same
   Chrome-extension-unavailable caveat as the rest of this M5 session).
+
+- **[M5-9] 🎯 G4 — Exports API + download UI** — S · M5-1…M5-8 — the Exports API side was
+  essentially complete by the end of [M5-8] (all 9 formats, `?part=N`, deduplication-free artifact
+  rows); this card's real work was closing two UI gaps that had accumulated across the whole M5
+  sequence: `JobOut.artifacts` changed from a plain deduplicated `list[str]` (which could only ever
+  say "an mp4 exists somewhere," not how many parts or which ones) to `list[JobArtifactOut]`
+  (`{format, part_index, part_total}`, one entry per real row) so the UI can actually enumerate every
+  part; and the Job page's inline download logic was extracted into a shared
+  `components/JobDownloads.tsx` (also gaining a one-click "Copy chapters text" button next to the
+  download link, matching [M5-7]'s "ready to paste" framing) so the same real, complete download
+  panel could be reused rather than re-built. The **second, larger gap**: nothing before this card
+  let a user get back to a finished book's downloads without already having the specific Job page URL
+  in hand — `GET /api/books/{id}/jobs` had existed unused since [M3-5], and the Book page never called
+  it. Fixed with a new `RenderHistory` section on the Book page listing every past render (status
+  badge + timestamp + voice, newest first) with that render's full `<JobDownloads>` panel inline —
+  this is what makes "every artifact for a finished book downloadable from one panel" literally true
+  at the *book* level, not just the job level.
+  ✅ Verified end to end against the **real running dev server** (`uvicorn` + real Kokoro synthesis;
+  the Chrome extension still wasn't connected in this environment, so the frontend's actual rendering
+  couldn't be screenshotted — noted explicitly rather than claimed — but every JSON shape the new
+  components consume was independently confirmed real, not assumed): uploaded a real 2-chapter EPUB,
+  rendered one normal job (`mp3`+`chapters`) and, after setting `mp4_part_limit_s` to 1 second through
+  the real `PUT /api/settings` endpoint, one job that actually split into 2 real MP4 parts — confirmed
+  `GET /api/books/{id}/jobs` (what `RenderHistory` calls) returns both jobs with the exact
+  `part_index`/`part_total` shape `JobDownloads` groups by, confirmed `?part=1` and `?part=2` each
+  download a genuinely different real file (`cmp` verified byte-level difference, not just two
+  200s), and confirmed the `chapters` artifact's real text content (what the "Copy" button fetches)
+  reads correctly. 229 backend tests passed both before and after this card's `JobOut` schema change
+  (the schema change itself is covered by two updated `test_api_jobs.py` assertions: the normal-job
+  shape and the split-job shape). Frontend verified via a clean `tsc -b && vite build` and `oxlint`
+  pass — the extracted `JobDownloads.tsx` needed its one shared constant made module-private to avoid
+  a new "only export components from this file" lint warning, otherwise clean; same pre-existing,
+  unrelated `Render.tsx` warning as every other M5 card.
 
 ### M4 — Multi-language (all 6 cards) — 🎯 G3 achieved
 

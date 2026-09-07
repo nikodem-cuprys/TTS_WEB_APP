@@ -87,6 +87,9 @@ def test_create_job_renders_and_downloads(client, uploaded_book_id):
     assert final["status"] == "done", final
     assert {s["name"] for s in final["stages"]} == {"prepare", "synthesize", "assemble", "master", "export"}
     assert all(s["status"] == "done" for s in final["stages"])
+    # an unsplit format's part_index/part_total both stay None — only [M5-8]'s mp4
+    # splitting ever sets them.
+    assert final["artifacts"] == [{"format": "mp3", "part_index": None, "part_total": None}]
 
     download = client.get(f"/api/jobs/{job['id']}/download")
     assert download.status_code == 200
@@ -201,10 +204,11 @@ def test_create_job_defaults_video_style_to_static(client, uploaded_book_id):
 
 @pytest.mark.slow
 def test_split_mp4_parts_are_reachable_via_the_part_query_param(client, uploaded_book_id):
-    """[M5-8]: a tiny mp4_part_limit_s (set through the real /api/settings endpoint, the
-    same knob the Settings page uses) forces the 2-chapter fixture book to split into 2
-    real MP4 parts; the download endpoint's artifacts summary stays deduplicated to one
-    "mp4" entry, and ?part=N reaches each individual part."""
+    """[M5-8]/[M5-9]: a tiny mp4_part_limit_s (set through the real /api/settings
+    endpoint, the same knob the Settings page uses) forces the 2-chapter fixture book to
+    split into 2 real MP4 parts; the job's artifacts list reports one entry per part
+    (not deduplicated away — the download panel needs to know both exist), and
+    ?part=N reaches each individual part."""
     settings_resp = client.put("/api/settings", json={"mp4_part_limit_s": 1.0})
     assert settings_resp.status_code == 200
 
@@ -212,7 +216,10 @@ def test_split_mp4_parts_are_reachable_via_the_part_query_param(client, uploaded
     assert resp.status_code == 201
     final = _poll_until_terminal(client, resp.json()["id"])
     assert final["status"] == "done", final
-    assert final["artifacts"] == ["mp4"]  # deduplicated, not one "mp4" entry per part
+    assert final["artifacts"] == [
+        {"format": "mp4", "part_index": 1, "part_total": 2},
+        {"format": "mp4", "part_index": 2, "part_total": 2},
+    ]
 
     part1 = client.get(f"/api/jobs/{final['id']}/artifacts/mp4/download")
     assert part1.status_code == 200

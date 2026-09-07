@@ -81,6 +81,14 @@ export type VideoStyle = 'static' | 'waveform' | 'kenburns'
 
 export const VIDEO_STYLES: VideoStyle[] = ['static', 'waveform', 'kenburns']
 
+export type JobArtifactInfo = {
+  format: ExportFormat
+  //: both null for a format that wasn't split; [M5-8]'s mp4 splitting is the only
+  //: source of multiple entries sharing one format, one per part.
+  part_index: number | null
+  part_total: number | null
+}
+
 export type Job = {
   id: number
   book_id: number
@@ -93,7 +101,7 @@ export type Job = {
   started_at: string | null
   finished_at: string | null
   stages: JobStageInfo[]
-  artifacts: ExportFormat[]
+  artifacts: JobArtifactInfo[]
 }
 
 export type SettingsValues = {
@@ -284,9 +292,12 @@ export function downloadJobUrl(jobId: number) {
   return `/api/jobs/${jobId}/download`
 }
 
-/** Downloads one specific exported format (e.g. the M4B or the SRT) for a job. */
-export function downloadJobArtifactUrl(jobId: number, format: ExportFormat) {
-  return `/api/jobs/${jobId}/artifacts/${format}/download`
+/** Downloads one specific exported format (e.g. the M4B or the SRT) for a job. `part`
+ * (1-based) picks one part of a format [M5-8] split into several (currently only ever
+ * mp4) — omit it for an unsplit format, or to get part 1 by default. */
+export function downloadJobArtifactUrl(jobId: number, format: ExportFormat, part?: number) {
+  const query = part != null ? `?part=${part}` : ''
+  return `/api/jobs/${jobId}/artifacts/${format}/download${query}`
 }
 
 /** For an <audio> element's src — unlike downloadJobUrl, this has no Content-Disposition:

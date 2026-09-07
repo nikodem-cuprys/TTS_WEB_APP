@@ -4,15 +4,8 @@ import Button from '../components/ui/Button'
 import Card from '../components/ui/Card'
 import ProgressBar from '../components/ui/ProgressBar'
 import JobStatusBadge from '../components/JobStatusBadge'
-import {
-  cancelJob,
-  downloadJobArtifactUrl,
-  getJob,
-  streamJobUrl,
-  subscribeJobEvents,
-  type ExportFormat,
-  type Job as JobType,
-} from '../lib/api'
+import JobDownloads from '../components/JobDownloads'
+import { cancelJob, getJob, streamJobUrl, subscribeJobEvents, type Job as JobType } from '../lib/api'
 
 const STAGE_LABELS: Record<string, string> = {
   prepare: 'Preparing text',
@@ -20,18 +13,6 @@ const STAGE_LABELS: Record<string, string> = {
   assemble: 'Assembling audio',
   master: 'Mastering loudness',
   export: 'Exporting',
-}
-
-const ARTIFACT_LABELS: Record<ExportFormat, string> = {
-  mp3: 'MP3',
-  m4b: 'M4B',
-  opus: 'Opus',
-  flac: 'FLAC',
-  wav: 'WAV',
-  srt: 'SRT',
-  vtt: 'VTT',
-  mp4: 'MP4',
-  chapters: 'YouTube chapters',
 }
 
 function elapsedSeconds(job: JobType): number | null {
@@ -137,14 +118,9 @@ export default function Job() {
         </div>
 
         {job.status === 'done' && job.artifacts.length > 0 && (
-          <div className="flex flex-wrap gap-2">
-            {job.artifacts.map((format) => (
-              <a key={format} href={downloadJobArtifactUrl(job.id, format)} download>
-                <Button size="sm" variant="secondary">
-                  Download {ARTIFACT_LABELS[format]}
-                </Button>
-              </a>
-            ))}
+          <div className="flex flex-col gap-1.5">
+            <span className="text-xs font-medium text-text-2">Downloads</span>
+            <JobDownloads job={job} />
           </div>
         )}
 

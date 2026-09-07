@@ -52,6 +52,15 @@ class JobStageOut(BaseModel):
     progress: float
 
 
+class JobArtifactOut(BaseModel):
+    format: str
+    #: both `None` for a format that wasn't split ([M5-8], currently mp4-only); a
+    #: format that *was* split reports one entry per part, 1-based `part_index` and the
+    #: same `part_total` on every one of that format's entries.
+    part_index: int | None
+    part_total: int | None
+
+
 class JobOut(BaseModel):
     id: int
     book_id: int
@@ -64,7 +73,7 @@ class JobOut(BaseModel):
     started_at: str | None
     finished_at: str | None
     stages: list[JobStageOut]
-    artifacts: list[str]
+    artifacts: list[JobArtifactOut]
 
 
 def _job_out(job: Job) -> JobOut:
@@ -77,11 +86,10 @@ def _job_out(job: Job) -> JobOut:
             JobStageOut(name=s.name, status=s.status, progress=s.progress)
             for s in sorted(job.stages, key=lambda s: s.id or 0)
         ],
-        # a format split into several parts ([M5-8]'s mp4 splitting) produces several
-        # JobArtifact rows sharing one format string — deduplicated here (order
-        # preserved) since this summary is just "which formats exist", not a full part
-        # listing; /jobs/{id}/artifacts/{format}/download's ?part= reaches each one.
-        artifacts=list(dict.fromkeys(a.format for a in sorted(job.artifacts, key=lambda a: a.id or 0))),
+        artifacts=[
+            JobArtifactOut(format=a.format, part_index=a.part_index, part_total=a.part_total)
+            for a in sorted(job.artifacts, key=lambda a: (a.format, a.part_index or 0))
+        ],
     )
 
 

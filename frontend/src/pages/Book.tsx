@@ -6,15 +6,19 @@ import Badge from '../components/ui/Badge'
 import Select from '../components/ui/Select'
 import Spinner from '../components/ui/Spinner'
 import LexiconEditor from '../components/LexiconEditor'
+import JobStatusBadge from '../components/JobStatusBadge'
+import JobDownloads from '../components/JobDownloads'
 import {
   getBook,
   getChapter,
+  listBookJobs,
   updateBlock,
   updateBook,
   updateChapter,
   type BookDetail,
   type ChapterDetail,
   type ChapterSummary,
+  type Job,
 } from '../lib/api'
 
 const WORDS_PER_MINUTE = 150
@@ -223,6 +227,38 @@ function BlockEditor({
   )
 }
 
+/** Every past render of this book — including its downloads once finished — so a
+ * returning visitor never has to remember or re-find a specific Job page URL to get
+ * back to a finished audiobook's exports. [M5-9] */
+function RenderHistory({ bookId }: { bookId: number }) {
+  const [jobs, setJobs] = useState<Job[] | null>(null)
+
+  useEffect(() => {
+    listBookJobs(bookId).then(setJobs)
+  }, [bookId])
+
+  if (jobs === null || jobs.length === 0) return null
+
+  return (
+    <Card className="mb-6 flex flex-col gap-3 p-5">
+      <h3 className="text-sm font-medium text-text">Renders</h3>
+      <div className="flex flex-col gap-3">
+        {jobs.map((job) => (
+          <div key={job.id} className="flex flex-col gap-2 border-t border-border pt-3 first:border-t-0 first:pt-0">
+            <div className="flex items-center justify-between gap-2">
+              <Link to={`/jobs/${job.id}`} className="text-sm text-text hover:text-accent">
+                {new Date(job.created_at).toLocaleString()} · {job.voice}
+              </Link>
+              <JobStatusBadge status={job.status} />
+            </div>
+            <JobDownloads job={job} />
+          </div>
+        ))}
+      </div>
+    </Card>
+  )
+}
+
 export default function Book() {
   const { bookId } = useParams<{ bookId: string }>()
   const id = Number(bookId)
@@ -276,6 +312,8 @@ export default function Book() {
           <Button>Render Audiobook</Button>
         </Link>
       </div>
+
+      <RenderHistory bookId={book.id} />
 
       <div className="mb-6 flex flex-col gap-2">
         {book.chapters.map((chapter) => (

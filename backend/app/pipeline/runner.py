@@ -47,11 +47,12 @@ from ..text.normalize import normalize
 from ..text.segment import segment_text
 from ..tts.pool import DEFAULT_WORKERS, SynthPool, SynthRequest
 from ..tts.registry import engine_for_language
+from ..video.render import render_static_mp4
 
 STAGE_NAMES = ["prepare", "synthesize", "assemble", "master", "export"]
 #: every export format the pipeline knows how to produce — validated against at the
 #: API boundary (POST /api/books/{id}/jobs) and looped over in run_job()'s export stage.
-SUPPORTED_EXPORT_FORMATS = {"mp3", "m4b", "opus", "flac", "wav", "srt", "vtt"}
+SUPPORTED_EXPORT_FORMATS = {"mp3", "m4b", "opus", "flac", "wav", "srt", "vtt", "mp4"}
 DEFAULT_EXPORT_FORMATS = ["mp3"]
 _SAFE_NAME_RE = re.compile(r"[^A-Za-z0-9 ._-]+")
 #: chunks per pool.synth_many() call in the synthesize stage — small enough that a
@@ -356,6 +357,9 @@ def run_job(
                     subtitle_cues = _build_subtitle_cues(segments)
                 path = settings.output_dir() / f"{base_name}.vtt"
                 path.write_text(to_vtt(subtitle_cues), encoding="utf-8")
+            elif fmt == "mp4":
+                path = settings.output_dir() / f"{base_name}.mp4"
+                render_static_mp4(mastered_wav, path, cover_path=cover_path, title=book.title, artist=book.author)
             else:
                 raise PipelineError(f"unsupported export format: {fmt!r}")
 

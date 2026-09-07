@@ -23,6 +23,7 @@ const FORMAT_LABELS: Record<ExportFormat, string> = {
   wav: 'WAV',
   srt: 'SRT subtitles',
   vtt: 'VTT subtitles',
+  mp4: 'MP4 (video, static cover)',
 }
 
 export default function Render() {

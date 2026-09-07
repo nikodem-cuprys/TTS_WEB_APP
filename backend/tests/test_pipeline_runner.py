@@ -277,13 +277,15 @@ def test_build_subtitle_cues_sorts_by_index_and_skips_blank_or_unsynced_segments
 
 @pytest.mark.slow
 def test_run_job_produces_every_requested_export_format(db_session, epub_path):
-    """[M5-1]/[M5-2]/[M5-6]: one job can request MP3+M4B+Opus+FLAC+WAV+SRT+VTT in a
-    single render, and every format is both recorded as a JobArtifact and a real,
-    playable/parseable file — including working M4B chapter markers and SRT/VTT cues
-    that line up with the real segment timings."""
+    """[M5-1]/[M5-2]/[M5-3]/[M5-6]: one job can request MP3+M4B+Opus+FLAC+WAV+SRT+VTT+MP4
+    in a single render, and every format is both recorded as a JobArtifact and a real,
+    playable/parseable file — including working M4B chapter markers, SRT/VTT cues that
+    line up with the real segment timings, and an MP4 whose duration matches the
+    mastered audio (this fixture book has no cover, so this also exercises MP4's
+    placeholder-background fallback path)."""
     from app.ingest.epub import EpubParser
 
-    all_formats = ["mp3", "m4b", "opus", "flac", "wav", "srt", "vtt"]
+    all_formats = ["mp3", "m4b", "opus", "flac", "wav", "srt", "vtt", "mp4"]
     document = EpubParser().parse(epub_path)
     book = persist_document(db_session, document, epub_path, "epub")
 
@@ -317,3 +319,13 @@ def test_run_job_produces_every_requested_export_format(db_session, epub_path):
 
     vtt_text = open(artifacts["vtt"], encoding="utf-8").read()
     assert vtt_text.startswith("WEBVTT\n")
+
+    mp4_probe = subprocess.run(
+        ["ffprobe", "-hide_banner", "-v", "quiet", "-print_format", "json", "-show_format", "-show_streams",
+         artifacts["mp4"]],
+        capture_output=True, text=True,
+    )
+    mp4_info = json.loads(mp4_probe.stdout)
+    kinds = {s["codec_type"] for s in mp4_info["streams"]}
+    assert kinds == {"video", "audio"}
+    assert float(mp4_info["format"]["duration"]) == pytest.approx(_probe_duration(primary_path), abs=0.5)

@@ -30,6 +30,7 @@ const ARTIFACT_LABELS: Record<ExportFormat, string> = {
   wav: 'WAV',
   srt: 'SRT',
   vtt: 'VTT',
+  mp4: 'MP4',
 }
 
 function elapsedSeconds(job: JobType): number | null {

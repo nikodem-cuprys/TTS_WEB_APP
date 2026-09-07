@@ -71,9 +71,9 @@ export type JobStageInfo = {
 
 export type JobStatus = 'queued' | 'running' | 'done' | 'failed' | 'cancelled'
 
-export type ExportFormat = 'mp3' | 'm4b' | 'opus' | 'flac' | 'wav' | 'srt' | 'vtt'
+export type ExportFormat = 'mp3' | 'm4b' | 'opus' | 'flac' | 'wav' | 'srt' | 'vtt' | 'mp4'
 
-export const EXPORT_FORMATS: ExportFormat[] = ['mp3', 'm4b', 'opus', 'flac', 'wav', 'srt', 'vtt']
+export const EXPORT_FORMATS: ExportFormat[] = ['mp3', 'm4b', 'opus', 'flac', 'wav', 'srt', 'vtt', 'mp4']
 
 export type Job = {
   id: number

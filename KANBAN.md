@@ -67,10 +67,6 @@ M5 Publishing → M6 Quality & perf → L Later
 
 ### M5 — Publishing
 
-- **[M5-3] MP4 static-cover render** — M · M2-8
-  Cover + audio, `-tune stillimage`, low input fps.
-  ✅ A 10-hour book encodes in minutes, not hours, and stays reasonably small.
-
 - **[M5-4] MP4 waveform + Ken Burns styles** — M · M5-3
   Green-tinted `showwaves` over the cover; slow `zoompan` alternative.
 
@@ -102,25 +98,25 @@ M5 Publishing → M6 Quality & perf → L Later
 
 ## ✔️ Done
 
-### M5 — Publishing (3 of 9 cards so far: M5-1, M5-2, M5-6)
+### M5 — Publishing (4 of 9 cards so far: M5-1, M5-2, M5-3, M5-6)
 
-A single job can now request any combination of `mp3,m4b,opus,flac,wav,srt,vtt` — each format is
+A single job can now request any combination of `mp3,m4b,opus,flac,wav,srt,vtt,mp4` — each format is
 produced from the one already-mastered WAV (no format-specific re-synthesis) and recorded as a new
 `JobArtifact(job_id, format, path)` row, so a job's `output_path`/`/download`/`/stream` stay MP3-only
 for backward compatibility while a new `GET /api/jobs/{id}/artifacts/{format}/download` endpoint
-serves every other produced format. Verified against the **real running dev server**, not just
-pytest (the Chrome extension needed for an actual browser session wasn't connected in this
-environment, so browser-driven GUI verification — the project's usual pattern for GUI changes —
-was substituted with a direct HTTP smoke test against `uvicorn`/real Kokoro synthesis): uploaded a
-real 2-chapter EPUB, requested all 7 formats in one job, and confirmed all 7 downloaded
-successfully with correct `Content-Type`s, non-empty bodies, and — independently re-measured via
-`ffprobe`, not just "didn't error" — 2 correctly-titled, contiguous M4B chapter markers and SRT/VTT
-cues whose timestamps exactly match the real per-segment synthesis timing. The frontend (`Render`
-page's format checkboxes, `Job` page's per-format download buttons) was verified via a real
-`tsc -b && vite build` and `oxlint` pass (clean; the one pre-existing lint warning on `Render.tsx`
-predates this change, confirmed via `git stash`) rather than an actual browser session, given the
-extension limitation above — noted explicitly per the project's "say so if you can't test the UI"
-rule rather than claimed as done.
+serves every other produced format. M5-1/M5-2/M5-6 (audio-only formats + subtitles) were verified
+against the **real running dev server**, not just pytest (the Chrome extension needed for an actual
+browser session wasn't connected in that environment, so browser-driven GUI verification — the
+project's usual pattern for GUI changes — was substituted with a direct HTTP smoke test against
+`uvicorn`/real Kokoro synthesis): uploaded a real 2-chapter EPUB, requested all 7 then-supported
+formats in one job, and confirmed all 7 downloaded successfully with correct `Content-Type`s,
+non-empty bodies, and — independently re-measured via `ffprobe`, not just "didn't error" — 2
+correctly-titled, contiguous M4B chapter markers and SRT/VTT cues whose timestamps exactly match the
+real per-segment synthesis timing. The frontend (`Render` page's format checkboxes, `Job` page's
+per-format download buttons) was verified via a real `tsc -b && vite build` and `oxlint` pass (clean;
+the one pre-existing lint warning on `Render.tsx` predates this change, confirmed via `git stash`)
+rather than an actual browser session, given the extension limitation above — noted explicitly per
+the project's "say so if you can't test the UI" rule rather than claimed as done.
 
 - **[M5-1] M4B chaptered export** — M · M2-8 — chapter spans are derived from each chapter's
   already-known segment `start_s`/`duration_s` (no new alignment step): a chapter's marker runs
@@ -139,6 +135,27 @@ rule rather than claimed as done.
   metadata tags on the **stream**, not the **format**, for an Ogg/Opus container — unlike MP3/FLAC/
   WAV/M4B, which all put tags on `format.tags`. Confirmed directly against a real ffmpeg encode
   before fixing the test, rather than assumed.
+
+- **[M5-3] MP4 static-cover render** — M · M2-8 — `video/render.py`'s `render_static_mp4()` feeds
+  ffmpeg the cover image (or, if the book has none, a flat placeholder background generated via an
+  `-f lavfi color=...` source — a proper generated title/author cover is [M5-5]'s job, not this
+  card's) as a looped input alongside the mastered WAV, encoded with `-tune stillimage` at a very low
+  2 fps output. Wired into `pipeline/runner.py`'s export loop as an eighth `SUPPORTED_EXPORT_FORMATS`
+  entry (`"mp4"`) and into the jobs API's artifact media-type map (`video/mp4`); the frontend's
+  generic per-format checkbox/download-button lists (`EXPORT_FORMATS`, `Render.tsx`'s
+  `FORMAT_LABELS`, `Job.tsx`'s `ARTIFACT_LABELS`) needed only a new entry each, no new UI code, since
+  M5-9's download panel design was already format-agnostic.
+  ✅ A 10-hour book encodes in minutes, not hours, and stays reasonably small — verified directly:
+  the real end-to-end pipeline test (`test_run_job_produces_every_requested_export_format`) now also
+  requests `mp4` alongside the other 7 formats and, via `ffprobe`, confirms the output actually
+  contains both a video and an audio stream and that its duration matches the mastered audio to
+  within 0.5s — not just "ffmpeg exited 0." A dedicated `test_video_render.py` separately confirms
+  the no-cover placeholder-background path, a real-cover path (`h264` video codec), and the 2 fps
+  output frame rate that keeps long renders fast, against synthetic ffmpeg-generated fixtures. Full
+  backend suite: 191 passed (up from 172). Frontend verified via a clean `tsc -b && vite build` and
+  `oxlint` pass (the one pre-existing `Render.tsx` warning is unrelated, per the prior M5 session's
+  `git stash` confirmation) rather than an actual browser session — the Chrome extension was not
+  connected in this environment either, so this is stated explicitly rather than claimed as done.
 
 - **[M5-6] SRT / VTT subtitles** — S · M2-7 — `publish/subtitles.py`, built from the exact same
   per-segment `(start_s, duration_s)` M5-1's chapter markers use — genuinely free, no forced

@@ -67,9 +67,6 @@ M5 Publishing → M6 Quality & perf → L Later
 
 ### M5 — Publishing
 
-- **[M5-4] MP4 waveform + Ken Burns styles** — M · M5-3
-  Green-tinted `showwaves` over the cover; slow `zoompan` alternative.
-
 - **[M5-5] Generated cover art** — S · M5-3
   Pillow fallback cover in the dark/green theme with title + author.
 
@@ -98,7 +95,7 @@ M5 Publishing → M6 Quality & perf → L Later
 
 ## ✔️ Done
 
-### M5 — Publishing (4 of 9 cards so far: M5-1, M5-2, M5-3, M5-6)
+### M5 — Publishing (5 of 9 cards so far: M5-1, M5-2, M5-3, M5-4, M5-6)
 
 A single job can now request any combination of `mp3,m4b,opus,flac,wav,srt,vtt,mp4` — each format is
 produced from the one already-mastered WAV (no format-specific re-synthesis) and recorded as a new
@@ -156,6 +153,50 @@ the project's "say so if you can't test the UI" rule rather than claimed as done
   `oxlint` pass (the one pre-existing `Render.tsx` warning is unrelated, per the prior M5 session's
   `git stash` confirmation) rather than an actual browser session — the Chrome extension was not
   connected in this environment either, so this is stated explicitly rather than claimed as done.
+
+- **[M5-4] MP4 waveform + Ken Burns styles** — M · M5-3 — `video/render.py` grew
+  `render_waveform_mp4()` and `render_kenburns_mp4()` alongside the existing static renderer, plus a
+  `render_mp4(style=...)` dispatcher the pipeline runner calls so it never needs to know each style's
+  function name. Waveform overlays a green-tinted (`0x3ecf8e`, theme.css's `--accent`) `showwaves`
+  line across the bottom of the cover via `filter_complex`; both motion styles first scale/pad the
+  cover onto a fixed 1280×720 canvas (`force_original_aspect_ratio=decrease` + `pad`, so a portrait
+  book cover doesn't get cropped) since — unlike the static style, which just keeps the cover's native
+  size — an overlay or zoom needs a known canvas to work against. A real, reproducible bug fixed along
+  the way, in the *static* renderer this card touched incidentally while adding the shared even-dims
+  guard: yuv420p (4:2:0 chroma subsampling) requires even width/height, so a real book cover of an
+  arbitrary (odd) size would have made `render_static_mp4()` fail outright — never hit by [M5-3]'s own
+  tests, which happened to only use even-sized synthetic covers. Fixed with a `scale=trunc(iw/2)*2:
+  trunc(ih/2)*2` filter and covered by a dedicated regression test using a deliberately-odd 641×481
+  cover. Ken Burns' trickiest real problem: `zoompan`'s zoom increment has to be *per-frame*, but a
+  book's duration isn't known until the mastered WAV exists — a fixed increment tuned for a short clip
+  would reach max zoom and freeze for the remaining hours of a long book. Fixed by probing the
+  mastered WAV's real duration first (`soundfile.info()`, cheap — header-only, no full decode) and
+  computing `zoom_increment = (max_zoom - 1) / (duration_s * fps)` so the drift reaches its target
+  zoom exactly at the audio's own end regardless of book length. A second, subtler bug caught only by
+  actually running the encode (not just reading the filter graph): Python's `repr()` of that
+  increment renders in scientific notation for long books (~1e-7 for a 10-hour book at 24fps), which
+  ffmpeg's expression evaluator doesn't reliably parse as a filter literal — fixed by formatting it as
+  a fixed-decimal string (`f"{zoom_increment:.12f}"`) instead.
+
+  Style selection is job-level, not per-format: `Job.video_style` (`"static"`/`"waveform"`/
+  `"kenburns"`, default `"static"`) flows from a new `CreateJobRequest.video_style` field (validated
+  against `VIDEO_STYLES` at the API boundary, same 422-on-unknown-value pattern the format list
+  already used) through `create_job()` to the runner's `mp4` export branch. The `Render` page shows a
+  video-style `<select>` only when the `mp4` checkbox is checked, using the same
+  generic-list-drives-UI pattern `EXPORT_FORMATS` already established, so no new component was needed.
+  ✅ Verified directly, not just "the filter graph looks right": a dedicated
+  `test_video_render.py` suite (10 cases) exercises all three styles' cover and no-cover paths against
+  synthetic ffmpeg fixtures — including asserting the waveform/Ken Burns outputs are actually a
+  1280×720 canvas and that `render_mp4()`'s dispatcher produces output matching the requested style's
+  own frame rate (2fps for static vs. 24fps for waveform) — real, distinguishing signals, not just
+  "didn't crash." A `@pytest.mark.slow` pipeline test
+  (`test_run_job_honors_a_non_default_video_style`) renders a real book end to end with
+  `video_style="waveform"` and confirms via `ffprobe` that the *runner*, not just the standalone
+  render function, actually threads the style through — the multi-format test alone would have missed
+  a bug where `job.video_style` was accepted by the API but silently ignored by the export loop. Full
+  backend suite: 201 passed (up from 191). Frontend verified via a clean `tsc -b && vite build` and
+  `oxlint` pass (same pre-existing, unrelated `Render.tsx` warning; no actual browser session, per the
+  same Chrome-extension-unavailable caveat as [M5-3]).
 
 - **[M5-6] SRT / VTT subtitles** — S · M2-7 — `publish/subtitles.py`, built from the exact same
   per-segment `(start_s, duration_s)` M5-1's chapter markers use — genuinely free, no forced

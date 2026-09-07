@@ -1,11 +1,18 @@
 import json
 import subprocess
+from pathlib import Path
 
 import numpy as np
 import pytest
 
 from app.audio.encode import write_wav
-from app.video.render import render_static_mp4
+from app.video.render import (
+    VideoEncodeError,
+    render_kenburns_mp4,
+    render_mp4,
+    render_static_mp4,
+    render_waveform_mp4,
+)
 
 SR = 24000
 
@@ -66,3 +73,77 @@ def test_render_static_mp4_encodes_at_low_frame_rate(tmp_path):
     video_stream = next(s for s in info["streams"] if s["codec_type"] == "video")
     num, den = video_stream["r_frame_rate"].split("/")
     assert float(num) / float(den) == pytest.approx(2.0, abs=0.15)
+
+
+def test_render_static_mp4_with_odd_dimension_cover_does_not_fail(tmp_path):
+    """yuv420p (4:2:0 chroma subsampling) requires even width/height — a real book
+    cover of an arbitrary size (here deliberately odd, 641x481) must not crash the
+    encode; the even-dims guard filter should downscale it by one pixel instead."""
+    cover = _make_cover(tmp_path / "cover.png", size="641x481")
+    wav = write_wav(tmp_path / "in.wav", _sine(1.0), SR)
+    mp4 = render_static_mp4(wav, tmp_path / "out.mp4", cover_path=cover)
+    assert mp4.is_file()
+    info = _probe(mp4, "-show_streams")
+    video_stream = next(s for s in info["streams"] if s["codec_type"] == "video")
+    assert int(video_stream["width"]) % 2 == 0
+    assert int(video_stream["height"]) % 2 == 0
+
+
+def test_render_waveform_mp4_overlays_green_showwaves_on_the_cover(tmp_path):
+    cover = _make_cover(tmp_path / "cover.png")
+    wav = write_wav(tmp_path / "in.wav", _sine(2.0), SR)
+    mp4 = render_waveform_mp4(wav, tmp_path / "out.mp4", cover_path=cover, title="T")
+    assert mp4.is_file()
+
+    info = _probe(mp4, "-show_format", "-show_streams")
+    video_stream = next(s for s in info["streams"] if s["codec_type"] == "video")
+    assert video_stream["codec_name"] == "h264"
+    assert video_stream["width"] == 1280
+    assert video_stream["height"] == 720
+    assert float(info["format"]["duration"]) == pytest.approx(2.0, abs=0.2)
+
+
+def test_render_waveform_mp4_without_cover_uses_placeholder_background(tmp_path):
+    wav = write_wav(tmp_path / "in.wav", _sine(1.0), SR)
+    mp4 = render_waveform_mp4(wav, tmp_path / "out.mp4")
+    assert mp4.is_file()
+    assert mp4.stat().st_size > 0
+
+
+def test_render_kenburns_mp4_zooms_over_the_duration_of_the_audio(tmp_path):
+    cover = _make_cover(tmp_path / "cover.png")
+    wav = write_wav(tmp_path / "in.wav", _sine(2.0), SR)
+    mp4 = render_kenburns_mp4(wav, tmp_path / "out.mp4", cover_path=cover, max_zoom=1.2)
+    assert mp4.is_file()
+
+    info = _probe(mp4, "-show_format", "-show_streams")
+    video_stream = next(s for s in info["streams"] if s["codec_type"] == "video")
+    assert video_stream["codec_name"] == "h264"
+    assert video_stream["width"] == 1280
+    assert video_stream["height"] == 720
+    assert float(info["format"]["duration"]) == pytest.approx(2.0, abs=0.2)
+
+
+def test_render_kenburns_mp4_without_cover_uses_placeholder_background(tmp_path):
+    wav = write_wav(tmp_path / "in.wav", _sine(1.0), SR)
+    mp4 = render_kenburns_mp4(wav, tmp_path / "out.mp4")
+    assert mp4.is_file()
+    assert mp4.stat().st_size > 0
+
+
+def test_render_mp4_dispatches_by_style(tmp_path):
+    wav = write_wav(tmp_path / "in.wav", _sine(1.0), SR)
+    static_mp4 = render_mp4(wav, tmp_path / "static.mp4", style="static")
+    waveform_mp4 = render_mp4(wav, tmp_path / "waveform.mp4", style="waveform")
+    assert static_mp4.is_file()
+    assert waveform_mp4.is_file()
+
+    static_info = _probe(static_mp4, "-show_streams")
+    static_video = next(s for s in static_info["streams"] if s["codec_type"] == "video")
+    num, den = static_video["r_frame_rate"].split("/")
+    assert float(num) / float(den) == pytest.approx(2.0, abs=0.15)  # the "static" style's low fps
+
+
+def test_render_mp4_unknown_style_raises():
+    with pytest.raises(VideoEncodeError):
+        render_mp4(Path("in.wav"), Path("out.mp4"), style="not-a-real-style")

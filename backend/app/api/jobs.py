@@ -18,6 +18,7 @@ from ..db import get_session, new_session
 from ..models import Book, Job, JobStatus
 from ..pipeline.runner import SUPPORTED_EXPORT_FORMATS, create_job, run_job
 from ..tts.registry import UnsupportedLanguageError, VoiceNotFoundError, engine_for_language, resolve_voice
+from ..video.render import VIDEO_STYLES
 from ..util import utc_iso
 
 router = APIRouter()
@@ -41,6 +42,7 @@ class CreateJobRequest(BaseModel):
     voice: str
     speed: float = 1.0
     formats: list[str] = Field(default_factory=lambda: ["mp3"])
+    video_style: str = "static"
 
 
 class JobStageOut(BaseModel):
@@ -55,6 +57,7 @@ class JobOut(BaseModel):
     status: str
     voice: str
     speed: float
+    video_style: str
     error: str | None
     created_at: str
     started_at: str | None
@@ -66,7 +69,7 @@ class JobOut(BaseModel):
 def _job_out(job: Job) -> JobOut:
     return JobOut(
         id=job.id, book_id=job.book_id, status=job.status, voice=job.voice, speed=job.speed,
-        error=job.error, created_at=utc_iso(job.created_at),
+        video_style=job.video_style, error=job.error, created_at=utc_iso(job.created_at),
         started_at=utc_iso(job.started_at),
         finished_at=utc_iso(job.finished_at),
         stages=[
@@ -127,9 +130,16 @@ def create_render_job(book_id: int, body: CreateJobRequest, session: Session = D
             status_code=422,
             detail=f"unsupported format(s) {unknown_formats}; supported: {sorted(SUPPORTED_EXPORT_FORMATS)}",
         )
+    if body.video_style not in VIDEO_STYLES:
+        raise HTTPException(
+            status_code=422,
+            detail=f"unsupported video_style {body.video_style!r}; supported: {list(VIDEO_STYLES)}",
+        )
 
     typed = settings_store.get_typed(session)
-    job = create_job(session, book, voice=body.voice, speed=body.speed, formats=body.formats)
+    job = create_job(
+        session, book, voice=body.voice, speed=body.speed, formats=body.formats, video_style=body.video_style,
+    )
 
     thread = threading.Thread(
         target=_run_in_background,

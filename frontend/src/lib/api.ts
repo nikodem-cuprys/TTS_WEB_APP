@@ -75,12 +75,17 @@ export type ExportFormat = 'mp3' | 'm4b' | 'opus' | 'flac' | 'wav' | 'srt' | 'vt
 
 export const EXPORT_FORMATS: ExportFormat[] = ['mp3', 'm4b', 'opus', 'flac', 'wav', 'srt', 'vtt', 'mp4']
 
+export type VideoStyle = 'static' | 'waveform' | 'kenburns'
+
+export const VIDEO_STYLES: VideoStyle[] = ['static', 'waveform', 'kenburns']
+
 export type Job = {
   id: number
   book_id: number
   status: JobStatus
   voice: string
   speed: number
+  video_style: VideoStyle
   error: string | null
   created_at: string
   started_at: string | null
@@ -250,8 +255,14 @@ export async function previewVoice(voiceId: string): Promise<Blob> {
 
 // --- jobs -----------------------------------------------------------------------
 
-export function createJob(bookId: number, voice: string, speed: number, formats: ExportFormat[] = ['mp3']) {
-  return request<Job>(`/api/books/${bookId}/jobs`, json({ voice, speed, formats }))
+export function createJob(
+  bookId: number,
+  voice: string,
+  speed: number,
+  formats: ExportFormat[] = ['mp3'],
+  videoStyle: VideoStyle = 'static',
+) {
+  return request<Job>(`/api/books/${bookId}/jobs`, json({ voice, speed, formats, video_style: videoStyle }))
 }
 
 export function getJob(jobId: number) {

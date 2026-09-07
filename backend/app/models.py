@@ -69,6 +69,7 @@ class Job(SQLModel, table=True):
     engine: str
     speed: float = 1.0
     formats: str = "mp3"  # comma-separated: mp3,m4b,mp4,srt
+    video_style: str = "static"  # applies only when "mp4" is in formats: static|waveform|kenburns
     created_at: datetime = Field(default_factory=_utcnow)
     started_at: datetime | None = None
     finished_at: datetime | None = None

@@ -329,3 +329,30 @@ def test_run_job_produces_every_requested_export_format(db_session, epub_path):
     kinds = {s["codec_type"] for s in mp4_info["streams"]}
     assert kinds == {"video", "audio"}
     assert float(mp4_info["format"]["duration"]) == pytest.approx(_probe_duration(primary_path), abs=0.5)
+
+
+@pytest.mark.slow
+def test_run_job_honors_a_non_default_video_style(db_session, epub_path):
+    """[M5-4]: job.video_style routes through to the mp4 export branch, not just the
+    default "static" style exercised by the multi-format test above."""
+    from app.ingest.epub import EpubParser
+
+    document = EpubParser().parse(epub_path)
+    book = persist_document(db_session, document, epub_path, "epub")
+
+    job = create_job(db_session, book, voice="af_heart", speed=1.0, formats=["mp4"], video_style="waveform")
+    run_job(db_session, job, workers=2)
+
+    db_session.refresh(job)
+    assert job.status == JobStatus.done
+    mp4_path = next(a.path for a in job.artifacts if a.format == "mp4")
+
+    probe = subprocess.run(
+        ["ffprobe", "-hide_banner", "-v", "quiet", "-print_format", "json", "-show_streams", mp4_path],
+        capture_output=True, text=True,
+    )
+    video_stream = next(s for s in json.loads(probe.stdout)["streams"] if s["codec_type"] == "video")
+    # waveform (unlike static's 2 fps) redraws every frame at 24 fps — a cheap, direct
+    # signal that the "waveform" style, not the "static" default, actually rendered.
+    num, den = video_stream["r_frame_rate"].split("/")
+    assert float(num) / float(den) == pytest.approx(24.0, abs=1.0)

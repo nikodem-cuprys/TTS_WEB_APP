@@ -184,6 +184,21 @@ def test_create_job_with_empty_formats_returns_422(client, uploaded_book_id):
     assert resp.status_code == 422
 
 
+def test_create_job_with_unsupported_video_style_returns_422(client, uploaded_book_id):
+    resp = client.post(
+        f"/api/books/{uploaded_book_id}/jobs",
+        json={"voice": "af_heart", "formats": ["mp4"], "video_style": "not-a-real-style"},
+    )
+    assert resp.status_code == 422
+    assert "not-a-real-style" in resp.json()["detail"]
+
+
+def test_create_job_defaults_video_style_to_static(client, uploaded_book_id):
+    resp = client.post(f"/api/books/{uploaded_book_id}/jobs", json={"voice": "af_heart"})
+    assert resp.json()["video_style"] == "static"
+    client.post(f"/api/jobs/{resp.json()['id']}/cancel")  # don't leave a render running past the test
+
+
 def test_download_unproduced_artifact_format_returns_404(client, uploaded_book_id):
     resp = client.post(f"/api/books/{uploaded_book_id}/jobs", json={"voice": "af_heart"})
     job_id = resp.json()["id"]

@@ -10,8 +10,10 @@ import {
   listVoices,
   previewVoice,
   EXPORT_FORMATS,
+  VIDEO_STYLES,
   type BookDetail,
   type ExportFormat,
+  type VideoStyle,
   type VoiceInfo,
 } from '../lib/api'
 
@@ -23,7 +25,13 @@ const FORMAT_LABELS: Record<ExportFormat, string> = {
   wav: 'WAV',
   srt: 'SRT subtitles',
   vtt: 'VTT subtitles',
-  mp4: 'MP4 (video, static cover)',
+  mp4: 'MP4 (video)',
+}
+
+const VIDEO_STYLE_LABELS: Record<VideoStyle, string> = {
+  static: 'Static cover',
+  waveform: 'Waveform overlay',
+  kenburns: 'Ken Burns pan/zoom',
 }
 
 export default function Render() {
@@ -36,6 +44,7 @@ export default function Render() {
   const [voice, setVoice] = useState('')
   const [speed, setSpeed] = useState(1.0)
   const [formats, setFormats] = useState<ExportFormat[]>(['mp3'])
+  const [videoStyle, setVideoStyle] = useState<VideoStyle>('static')
   const [previewing, setPreviewing] = useState(false)
   const [starting, setStarting] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -84,7 +93,7 @@ export default function Render() {
     setStarting(true)
     setError(null)
     try {
-      const job = await createJob(id, voice, speed, formats)
+      const job = await createJob(id, voice, speed, formats, videoStyle)
       navigate(`/jobs/${job.id}`)
     } catch (e) {
       setError(String(e instanceof Error ? e.message : e))
@@ -160,6 +169,19 @@ export default function Render() {
               </div>
               {formats.length === 0 && <p className="text-xs text-danger">Select at least one format.</p>}
             </div>
+
+            {formats.includes('mp4') && (
+              <label className="flex flex-col gap-1.5">
+                <span className="text-xs font-medium text-text-2">Video style</span>
+                <Select value={videoStyle} onChange={(e) => setVideoStyle(e.target.value as VideoStyle)}>
+                  {VIDEO_STYLES.map((style) => (
+                    <option key={style} value={style}>
+                      {VIDEO_STYLE_LABELS[style]}
+                    </option>
+                  ))}
+                </Select>
+              </label>
+            )}
           </>
         )}
 

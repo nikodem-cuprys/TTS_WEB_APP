@@ -47,7 +47,7 @@ from ..text.normalize import normalize
 from ..text.segment import segment_text
 from ..tts.pool import DEFAULT_WORKERS, SynthPool, SynthRequest
 from ..tts.registry import engine_for_language
-from ..video.render import render_static_mp4
+from ..video.render import VIDEO_STYLES, render_mp4
 
 STAGE_NAMES = ["prepare", "synthesize", "assemble", "master", "export"]
 #: every export format the pipeline knows how to produce — validated against at the
@@ -191,10 +191,11 @@ def create_job(
     speed: float = 1.0,
     engine_id: str = "kokoro",
     formats: list[str] | None = None,
+    video_style: str = "static",
 ) -> Job:
     job = Job(
         book_id=book.id, status=JobStatus.queued, voice=voice, engine=engine_id, speed=speed,
-        formats=",".join(formats or DEFAULT_EXPORT_FORMATS),
+        formats=",".join(formats or DEFAULT_EXPORT_FORMATS), video_style=video_style,
     )
     session.add(job)
     session.commit()
@@ -359,7 +360,10 @@ def run_job(
                 path.write_text(to_vtt(subtitle_cues), encoding="utf-8")
             elif fmt == "mp4":
                 path = settings.output_dir() / f"{base_name}.mp4"
-                render_static_mp4(mastered_wav, path, cover_path=cover_path, title=book.title, artist=book.author)
+                render_mp4(
+                    mastered_wav, path, style=job.video_style, cover_path=cover_path,
+                    title=book.title, artist=book.author,
+                )
             else:
                 raise PipelineError(f"unsupported export format: {fmt!r}")
 

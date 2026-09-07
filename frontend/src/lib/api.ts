@@ -121,6 +121,11 @@ export type DiskUsage = {
   free_bytes: number
 }
 
+export type CachePruneResult = {
+  files_removed: number
+  bytes_freed: number
+}
+
 export type ModelStatus = {
   dest: string
   size_bytes: number
@@ -343,4 +348,10 @@ export function getDiskUsage() {
 
 export function getModelStatus() {
   return request<ModelStatus[]>('/api/settings/models')
+}
+
+/** [M6-4] Empties the chunk cache — every render adds content-addressed chunks that
+ * never expire on their own; this is the manual release valve for a low-disk machine. */
+export function pruneCache() {
+  return request<CachePruneResult>('/api/settings/cache', { method: 'DELETE' })
 }

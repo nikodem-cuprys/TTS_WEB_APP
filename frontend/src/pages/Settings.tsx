@@ -7,6 +7,7 @@ import {
   getDiskUsage,
   getModelStatus,
   getSettings,
+  pruneCache,
   updateSettings,
   type DiskUsage,
   type ModelStatus,
@@ -21,6 +22,9 @@ export default function Settings() {
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [saved, setSaved] = useState(false)
+  const [confirmingPrune, setConfirmingPrune] = useState(false)
+  const [pruning, setPruning] = useState(false)
+  const [pruneMessage, setPruneMessage] = useState<string | null>(null)
 
   const load = () => {
     getSettings().then((s) => {
@@ -53,6 +57,29 @@ export default function Settings() {
       setError(String(e instanceof Error ? e.message : e))
     } finally {
       setSaving(false)
+    }
+  }
+
+  const handlePruneCache = async () => {
+    if (!confirmingPrune) {
+      setConfirmingPrune(true)
+      return
+    }
+    setPruning(true)
+    setConfirmingPrune(false)
+    setPruneMessage(null)
+    try {
+      const result = await pruneCache()
+      setPruneMessage(
+        result.files_removed === 0
+          ? 'Cache was already empty.'
+          : `Freed ${formatBytes(result.bytes_freed)} (${result.files_removed} file${result.files_removed === 1 ? '' : 's'}).`,
+      )
+      getDiskUsage().then(setDiskUsage)
+    } catch (e) {
+      setPruneMessage(`Failed: ${e instanceof Error ? e.message : String(e)}`)
+    } finally {
+      setPruning(false)
     }
   }
 
@@ -139,16 +166,42 @@ export default function Settings() {
         <Card className="flex flex-col gap-3 p-5">
           <h3 className="text-sm font-medium text-text">Disk usage</h3>
           {diskUsage ? (
-            <div className="grid grid-cols-2 gap-y-1.5 text-sm">
-              <span className="text-text-2">Chunk cache</span>
-              <span className="text-right font-mono-tabular text-text">{formatBytes(diskUsage.cache_bytes)}</span>
-              <span className="text-text-2">Rendered output</span>
-              <span className="text-right font-mono-tabular text-text">{formatBytes(diskUsage.output_bytes)}</span>
-              <span className="text-text-2">Models</span>
-              <span className="text-right font-mono-tabular text-text">{formatBytes(diskUsage.models_bytes)}</span>
-              <span className="text-text-2">Free disk space</span>
-              <span className="text-right font-mono-tabular text-text">{formatBytes(diskUsage.free_bytes)}</span>
-            </div>
+            <>
+              <div className="grid grid-cols-2 gap-y-1.5 text-sm">
+                <span className="text-text-2">Chunk cache</span>
+                <span className="text-right font-mono-tabular text-text">{formatBytes(diskUsage.cache_bytes)}</span>
+                <span className="text-text-2">Rendered output</span>
+                <span className="text-right font-mono-tabular text-text">{formatBytes(diskUsage.output_bytes)}</span>
+                <span className="text-text-2">Models</span>
+                <span className="text-right font-mono-tabular text-text">{formatBytes(diskUsage.models_bytes)}</span>
+                <span className="text-text-2">Free disk space</span>
+                <span className="text-right font-mono-tabular text-text">{formatBytes(diskUsage.free_bytes)}</span>
+              </div>
+
+              <div className="flex flex-col gap-2 border-t border-border pt-3">
+                <div className="flex items-center gap-2">
+                  <Button
+                    size="sm"
+                    variant={confirmingPrune ? 'danger' : 'secondary'}
+                    onClick={handlePruneCache}
+                    disabled={pruning || diskUsage.cache_bytes === 0}
+                  >
+                    {pruning ? 'Pruning…' : confirmingPrune ? 'Confirm: delete cached audio' : 'Prune cache'}
+                  </Button>
+                  {confirmingPrune && (
+                    <Button size="sm" variant="ghost" onClick={() => setConfirmingPrune(false)}>
+                      Cancel
+                    </Button>
+                  )}
+                </div>
+                <p className="text-xs text-text-3">
+                  Frees space by deleting every already-synthesized audio chunk. Safe at any time — a
+                  future render just re-synthesizes what it needs — but don't do this while a render is
+                  in progress, since it wastes that render's own work.
+                </p>
+                {pruneMessage && <p className="text-xs text-accent">{pruneMessage}</p>}
+              </div>
+            </>
           ) : (
             <p className="text-sm text-text-2">Loading…</p>
           )}

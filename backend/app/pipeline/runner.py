@@ -85,6 +85,20 @@ def _safe_filename(name: str) -> str:
     return _SAFE_NAME_RE.sub("_", name).strip() or "book"
 
 
+def _cleanup_job_intermediates(settings, job_id: int) -> None:
+    """Deletes this job's scratch files from the cache dir — the raw/mastered WAV, an
+    auto-generated fallback cover ([M5-5]; a real book cover lives elsewhere and is
+    never touched), and any per-part MP4 source WAVs ([M5-8]). None of these are
+    content-addressed or reused once the job's run_job() call returns, unlike the
+    chunk cache proper, which must persist. [M6-4]."""
+    cache_dir = settings.cache_dir()
+    (cache_dir / f"job_{job_id}_raw.wav").unlink(missing_ok=True)
+    (cache_dir / f"job_{job_id}_mastered.wav").unlink(missing_ok=True)
+    (cache_dir / f"job_{job_id}_cover.png").unlink(missing_ok=True)
+    for part_wav in cache_dir.glob(f"job_{job_id}_mp4_part*.wav"):
+        part_wav.unlink(missing_ok=True)
+
+
 def _build_chunk_plan(chapters: list, language: str, lexicon_entries: list[LexiconEntry]) -> list[_ChunkPlan]:
     """Flattens every enabled chapter's blocks into an ordered chunk plan, deciding
     each chunk's trailing pause from its position: mid-block chunks get the shortest
@@ -459,3 +473,11 @@ def run_job(
         session.add(job)
         session.commit()
         raise
+    finally:
+        # [M6-4]: job-scoped intermediates (raw/mastered WAV, an auto-generated
+        # fallback cover, per-part MP4 source WAVs) are pure scratch space, never
+        # reused once this call returns (unlike the content-addressed chunk cache,
+        # which must persist for resumability/incremental re-renders) — cleaned up
+        # here regardless of how the job ended, so a failed or cancelled render
+        # doesn't leak them either.
+        _cleanup_job_intermediates(settings, job.id)

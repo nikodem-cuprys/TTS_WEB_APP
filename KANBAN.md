@@ -27,10 +27,6 @@ M5 Publishing → M6 Quality & perf → L Later
 
 ### M6 — Quality & performance
 
-- **[M6-4] Disk + cache management** — M · M2-5
-  Size reporting, prune, intermediate cleanup. ⚠️ Only 54 GB free on `D:`; WAV intermediates for a
-  10-hour book run ~1.7 GB.
-
 - **[M6-5] Error handling + recovery UX** — M · M3-5
   Legible failures; retry **only** the failed chunks.
 
@@ -86,7 +82,7 @@ M5 Publishing → M6 Quality & perf → L Later
 
 ## ✔️ Done
 
-### M6 — Quality & performance (2 of 6 cards so far: M6-1, M6-3)
+### M6 — Quality & performance (3 of 6 cards so far: M6-1, M6-3, M6-4)
 
 - **[M6-1] bench.py + RTF gate** — M · M4-* — `scripts/bench.py` renders a fixed ~5-minute passage
   per language through the **real production pipeline** (`pipeline.runner.run_job()` — pooled
@@ -195,6 +191,41 @@ M5 Publishing → M6 Quality & perf → L Later
   pages untouched and still `BlockKind.para`; 1 more confirms the scanned-PDF error path. A 6th, at the
   pipeline level, confirms `_build_chunk_plan()`'s new skip-filtering directly. Full backend suite:
   235 passed (up from 229).
+
+- **[M6-4] Disk + cache management** — M · M2-5 — size reporting already existed ([M3-7]'s
+  `GET /api/settings/disk-usage`); this card closed the two real gaps the card names.
+  1. **Intermediate cleanup.** Confirmed by direct inspection, not assumed: `pipeline/runner.py`
+     never deleted a job's `raw.wav`/`mastered.wav` (the pre-/post-mastering full assembled track —
+     the exact ~1.7 GB-per-10-hour-book intermediate this card's own warning names), its auto-generated
+     fallback cover ([M5-5]), or its per-part MP4 source WAVs ([M5-8]) — every one of them a pure,
+     job-scoped scratch file, never reused once `run_job()` returns, unlike the real content-addressed
+     chunk cache, which must persist for resumability. Every render was leaking roughly 2× the book's
+     raw WAV size permanently. Fixed with a `_cleanup_job_intermediates()` call in a `finally` block
+     wrapping the whole of `run_job()`, so it fires whether the job finished, failed, or was cancelled
+     — verified with two dedicated tests (real renders, not mocked): one confirms the intermediates
+     are gone after a successful render while the real chunk cache is untouched, the other forces a
+     failure partway through export and confirms cleanup still ran.
+  2. **Prune.** A new `DELETE /api/settings/cache` endpoint (and a matching Settings-page button, with
+     a two-click "Prune cache" → "Confirm: delete cached audio" pattern rather than a native browser
+     `confirm()` dialog, to match the app's own chrome) empties the chunk cache on demand — the
+     content-addressed cache has no automatic expiry by design ([M2-5]'s own standing decision, since
+     that's exactly what makes incremental re-renders free), so on a disk-constrained machine a manual
+     release valve is the right tool, not automatic eviction the card didn't ask for. Deliberately
+     simple and safe rather than clever: `pool.py`'s workers already treat a missing cache entry as an
+     ordinary cache miss and just re-synthesize it, so pruning — even mid-render, though the UI warns
+     against it as wasteful — costs redundant work at worst, never a crash, so no locking or
+     in-progress-job detection was needed.
+  ✅ Verified against the **real running dev server**, not just pytest: hit the real endpoint against
+  1,229 real accumulated chunk files from this session's own testing, confirmed exactly 1,229
+  `files_removed` and `bytes_freed` (1.53 GB) matching what `disk-usage` had reported a moment before,
+  and confirmed `cache_bytes` read back as 0 immediately after. (Along the way, discovered the dev
+  server's `--reload` had silently stopped picking up file changes partway through this session's
+  earlier edits — a real environment quirk, not a code bug — worked around by restarting it rather than
+  trusting reload for the rest of verification.) 2 new pipeline-level tests plus 2 new API-level tests
+  (a real multi-file prune, and a no-op-on-empty-cache case). Full backend suite: 239 passed (up from
+  235). Frontend verified via a clean `tsc -b && vite build` and `oxlint` pass (same pre-existing,
+  unrelated `Render.tsx` warning) rather than an actual browser session, given the Chrome extension
+  still wasn't connected in this environment.
 
 ### M5 — Publishing (all 9 cards) — 🎯 G4 achieved
 

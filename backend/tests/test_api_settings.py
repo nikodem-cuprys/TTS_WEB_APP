@@ -82,3 +82,28 @@ def test_model_status_reflects_real_downloaded_models(client):
     statuses = client.get("/api/settings/models").json()
     assert len(statuses) == 8
     assert all(s["present"] for s in statuses)  # all models were downloaded in M0
+
+
+def test_prune_cache_removes_real_files_and_reports_accurate_totals(client, tmp_path):
+    cache_dir = tmp_path / "data" / "cache"
+    (cache_dir / "abc123.wav").write_bytes(b"x" * 1000)
+    (cache_dir / "job_1_raw.wav").write_bytes(b"y" * 500)
+    sub_dir = cache_dir / "not_a_real_cache_layout"
+    sub_dir.mkdir()
+    (sub_dir / "nested.txt").write_bytes(b"z" * 10)  # not a top-level file — not pruned
+
+    resp = client.delete("/api/settings/cache")
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["files_removed"] == 2
+    assert body["bytes_freed"] == 1500
+
+    remaining = list(cache_dir.iterdir())
+    assert remaining == [sub_dir]  # only top-level files are pruned, not sub-directories
+    assert (sub_dir / "nested.txt").is_file()
+
+
+def test_prune_cache_on_an_already_empty_cache_is_a_safe_no_op(client):
+    resp = client.delete("/api/settings/cache")
+    assert resp.status_code == 200
+    assert resp.json() == {"files_removed": 0, "bytes_freed": 0}

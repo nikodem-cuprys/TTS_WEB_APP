@@ -90,6 +90,48 @@ def test_run_job_end_to_end(db_session, epub_path):
     assert all(b.start_s >= a.start_s for a, b in zip(segments, segments[1:]))
 
 
+@pytest.mark.slow
+def test_run_job_cleans_up_intermediates_after_success(db_session, epub_path):
+    """[M6-4]: the raw/mastered WAV are pure scratch space, not content-addressed and
+    never reused once the job finishes — they must not linger in the cache dir
+    forever, unlike the real (sha256-named) chunk cache entries, which must."""
+    from app.config import get_settings
+    from app.ingest.epub import EpubParser
+
+    document = EpubParser().parse(epub_path)
+    book = persist_document(db_session, document, epub_path, "epub")
+    job = create_job(db_session, book, voice="af_heart", speed=1.0, formats=["mp3", "mp4"])
+    run_job(db_session, job, workers=2)
+
+    cache_dir = get_settings().cache_dir()
+    leftover = [p.name for p in cache_dir.iterdir() if p.name.startswith(f"job_{job.id}_")]
+    assert leftover == []
+    # the real chunk cache (content-addressed, must survive) is untouched.
+    assert any(p.suffix == ".wav" and not p.name.startswith("job_") for p in cache_dir.iterdir())
+
+
+@pytest.mark.slow
+def test_run_job_cleans_up_intermediates_after_failure(db_session, epub_path):
+    """Cleanup must run even when the job fails partway through — a repeatedly-failing
+    render must not leak a raw/mastered WAV on every attempt."""
+    from app.config import get_settings
+    from app.ingest.epub import EpubParser
+
+    document = EpubParser().parse(epub_path)
+    book = persist_document(db_session, document, epub_path, "epub")
+    job = create_job(db_session, book, voice="af_heart", speed=1.0, formats=["not-a-real-format"])
+
+    with pytest.raises(Exception):
+        run_job(db_session, job, workers=2)
+
+    cache_dir = get_settings().cache_dir()
+    leftover = [p.name for p in cache_dir.iterdir() if p.name.startswith(f"job_{job.id}_")]
+    assert leftover == []
+
+    db_session.refresh(job)
+    assert job.status == JobStatus.failed
+
+
 def _make_epub(tmp_path, language: str, title: str, chapter_title: str, paragraphs: list[str]):
     from ebooklib import epub
 

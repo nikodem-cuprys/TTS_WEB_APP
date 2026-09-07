@@ -49,6 +49,11 @@ class ModelStatusOut(BaseModel):
     present: bool
 
 
+class CachePruneOut(BaseModel):
+    files_removed: int
+    bytes_freed: int
+
+
 def _dir_size(path) -> int:
     if not path.is_dir():
         return 0
@@ -94,6 +99,27 @@ def get_disk_usage(settings: Settings = Depends(get_settings)) -> DiskUsageOut:
         models_bytes=_dir_size(settings.models_dir),
         free_bytes=usage.free,
     )
+
+
+@router.delete("/settings/cache", response_model=CachePruneOut)
+def prune_cache(settings: Settings = Depends(get_settings)) -> CachePruneOut:
+    """[M6-4]: a manual, explicit "empty the chunk cache" action — every render adds
+    content-addressed chunks that never expire on their own, and on a machine with
+    little free disk this is the release valve. Safe by design, not just in practice:
+    the worker pool already treats a missing cache entry as a plain cache miss and
+    re-synthesizes it (pipeline/cache.py), so pruning mid-render costs redundant work
+    at worst, never a crash — still, pruning during an active render is wasteful and
+    the frontend warns against it."""
+    cache_dir = settings.cache_dir()
+    files_removed = 0
+    bytes_freed = 0
+    if cache_dir.is_dir():
+        for f in cache_dir.iterdir():
+            if f.is_file():
+                bytes_freed += f.stat().st_size
+                f.unlink()
+                files_removed += 1
+    return CachePruneOut(files_removed=files_removed, bytes_freed=bytes_freed)
 
 
 @router.get("/settings/models", response_model=list[ModelStatusOut])

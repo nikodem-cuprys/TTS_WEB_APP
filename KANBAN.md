@@ -27,10 +27,6 @@ M5 Publishing → M6 Quality & perf → L Later
 
 ### M6 — Quality & performance
 
-- **[M6-2] 🎯 G5 — Listening QA pass × 4 languages** — L · M4-*
-  3 consecutive minutes per language. Check number/abbreviation reading, pause pacing, chunk-join
-  artifacts. No automated metric substitutes for this.
-
 - **[M6-3] PDF parser hardening** — L · M1-4
   Real-world samples: scanned, 2-column, heavy footnotes, drop caps.
 
@@ -67,7 +63,21 @@ M5 Publishing → M6 Quality & perf → L Later
 
 ## 🔨 In Progress
 
-*(empty — WIP limit 3)*
+- **[M6-2] 🎯 G5 — Listening QA pass × 4 languages** — L · M4-* — **blocked on the user's own ears**,
+  by this card's own explicit "no automated metric substitutes" acceptance criterion; an AI agent
+  cannot judge audio naturalness or pause pacing by listening. What's done: a new
+  `scripts/render_qa_clips.py` renders a real ~3-minute-per-language clip (2:58 en / 3:05 pl / 2:50 de
+  / 2:42 zh) — an original 3-chapter story per language (not from any real book), deliberately loaded
+  with exactly the content this card asks to check: cardinal/decimal/percentage numbers, currency,
+  dates, negative temperatures, fractions, abbreviated titles (Mr./Dr./Prof. and their pl/de
+  equivalents), an ALL-CAPS word, and a roman-numeral chapter heading, with three chapter breaks (1.2s
+  pause) and several paragraph breaks (0.6s pause) per clip to exercise pacing, and enough sentence
+  variety to expose chunk-join artifacts. The four MP3s were sent directly to the user, and a
+  published review checklist (one card per language: an item-by-item checklist plus a pass/issues
+  toggle and a notes field, state saved to the browser via `localStorage`) accompanies them —
+  <https://claude.ai/code/artifact/2a2e57d7-c81e-476d-bae8-4457d10825cc>. Awaiting the user's actual
+  listening pass; record the real per-language verdict here once they report back, then close the G5
+  gate.
 
 ---
 

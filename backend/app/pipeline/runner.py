@@ -304,7 +304,15 @@ def run_job(
 
         if failed:
             _finish_stage(session, stage, status=JobStatus.failed)
-            raise PipelineError(f"{len(failed)} chunk(s) failed to synthesize: {failed[0].error}")
+            # [M6-5]: name which chunk failed, not just that "a chunk" did — the text
+            # preview is what actually lets a user find and fix (or lexicon-substitute)
+            # whatever in their book's text the engine choked on.
+            first_failed = next(seg for seg, r in zip(segments, results) if r.error)
+            preview = first_failed.text if len(first_failed.text) <= 80 else first_failed.text[:80] + "…"
+            raise PipelineError(
+                f"Speech synthesis failed on {len(failed)} of {len(results)} chunk(s). "
+                f'First failure — "{preview}": {failed[0].error}'
+            )
         _finish_stage(session, stage)
 
         # --- assemble: concatenate every chunk with fades + pauses -------------------

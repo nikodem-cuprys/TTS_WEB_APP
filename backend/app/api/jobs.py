@@ -110,6 +110,20 @@ def _run_in_background(
             pass  # run_job() already recorded the failure/cancellation on the job row
 
 
+def _start_job_thread(session: Session, job: Job) -> None:
+    typed = settings_store.get_typed(session)
+    thread = threading.Thread(
+        target=_run_in_background,
+        args=(
+            job.id, typed["tts_workers"],
+            typed["loudness_target_i"], typed["loudness_target_tp"], typed["loudness_target_lra"],
+            typed["mp4_part_limit_s"],
+        ),
+        daemon=True,
+    )
+    thread.start()
+
+
 @router.post("/books/{book_id}/jobs", response_model=JobOut, status_code=201)
 def create_render_job(book_id: int, body: CreateJobRequest, session: Session = Depends(get_session)) -> JobOut:
     book = session.get(Book, book_id)
@@ -152,22 +166,10 @@ def create_render_job(book_id: int, body: CreateJobRequest, session: Session = D
             detail=f"unsupported video_style {body.video_style!r}; supported: {list(VIDEO_STYLES)}",
         )
 
-    typed = settings_store.get_typed(session)
     job = create_job(
         session, book, voice=body.voice, speed=body.speed, formats=body.formats, video_style=body.video_style,
     )
-
-    thread = threading.Thread(
-        target=_run_in_background,
-        args=(
-            job.id, typed["tts_workers"],
-            typed["loudness_target_i"], typed["loudness_target_tp"], typed["loudness_target_lra"],
-            typed["mp4_part_limit_s"],
-        ),
-        daemon=True,
-    )
-    thread.start()
-
+    _start_job_thread(session, job)
     return _job_out(job)
 
 
@@ -197,6 +199,38 @@ def cancel_job(job_id: int, session: Session = Depends(get_session)) -> JobOut:
         session.add(job)
         session.commit()
         session.refresh(job)
+    return _job_out(job)
+
+
+@router.post("/jobs/{job_id}/retry", response_model=JobOut, status_code=201)
+def retry_job(job_id: int, session: Session = Depends(get_session)) -> JobOut:
+    """[M6-5]: starts a brand-new job with the exact same book/voice/speed/formats/
+    video_style as one that failed or was cancelled — the point isn't to mutate the
+    old job (its own record of what happened stays intact), it's to spare the user a
+    trip back through the Render page to re-enter settings they already chose once.
+    "Retry only the failed chunks" falls out of the content-addressed chunk cache for
+    free: every chunk that already synthesized successfully on the first attempt is an
+    instant cache hit here, so only the chunk(s) that actually failed pay for real
+    re-synthesis."""
+    original = session.get(Job, job_id)
+    if original is None:
+        raise HTTPException(status_code=404, detail="job not found")
+    if original.status not in (JobStatus.failed, JobStatus.cancelled):
+        raise HTTPException(
+            status_code=409,
+            detail=f"job is {original.status}, not failed or cancelled — nothing to retry",
+        )
+
+    book = session.get(Book, original.book_id)
+    if book is None:
+        raise HTTPException(status_code=404, detail="book not found")
+
+    formats = [f.strip() for f in original.formats.split(",") if f.strip()]
+    job = create_job(
+        session, book, voice=original.voice, speed=original.speed,
+        engine_id=original.engine, formats=formats, video_style=original.video_style,
+    )
+    _start_job_thread(session, job)
     return _job_out(job)
 
 

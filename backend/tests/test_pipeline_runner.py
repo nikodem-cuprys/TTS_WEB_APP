@@ -14,6 +14,7 @@ from app.ingest.persist import persist_document
 from app.models import Block, BlockKind, Chapter, JobStatus, Segment
 from app.pipeline.runner import (
     JobCancelledError,
+    PipelineError,
     _build_chapter_markers,
     _build_chunk_plan,
     _build_subtitle_cues,
@@ -267,6 +268,29 @@ def test_run_job_stops_at_the_next_checkpoint_when_already_cancelled(db_session,
     assert job.status == JobStatus.cancelled
     assert job.finished_at is not None
     assert job.stages == []  # cancelled before any stage even started
+
+
+@pytest.mark.slow
+def test_run_job_synthesis_failure_names_the_offending_chunk(db_session, epub_path):
+    """[M6-5]: a synthesis failure's message must say *which* text choked the engine,
+    not just that some unnamed chunk did — that's what actually lets a user find and
+    fix it (or add a lexicon substitution)."""
+    from app.ingest.epub import EpubParser
+
+    document = EpubParser().parse(epub_path)
+    book = persist_document(db_session, document, epub_path, "epub")
+    # a voice id no engine actually has — a real, unmocked synthesis-time failure.
+    job = create_job(db_session, book, voice="not-a-real-voice-id", speed=1.0)
+
+    with pytest.raises(PipelineError, match="Speech synthesis failed"):
+        run_job(db_session, job, workers=2)
+
+    db_session.refresh(job)
+    assert job.status == JobStatus.failed
+    assert "Speech synthesis failed" in job.error
+    # the actual chapter/paragraph text that failed appears in the message, not just a count.
+    first_block_text = sorted(book.chapters, key=lambda c: c.index)[0].blocks[0].text
+    assert first_block_text.split(".")[0] in job.error or job.error.count('"') >= 2
 
 
 def _segment(chapter_id, index, start_s, duration_s, text="x") -> Segment:

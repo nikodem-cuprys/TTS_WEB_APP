@@ -293,6 +293,13 @@ export function cancelJob(jobId: number) {
   return request<Job>(`/api/jobs/${jobId}/cancel`, { method: 'POST' })
 }
 
+/** [M6-5] Starts a new job reusing a failed/cancelled job's voice/speed/formats/
+ * video_style — "retry only the failed chunks" happens automatically via the chunk
+ * cache, not anything this call does directly. */
+export function retryJob(jobId: number) {
+  return request<Job>(`/api/jobs/${jobId}/retry`, { method: 'POST' })
+}
+
 export function downloadJobUrl(jobId: number) {
   return `/api/jobs/${jobId}/download`
 }

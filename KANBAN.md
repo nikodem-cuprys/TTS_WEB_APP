@@ -27,9 +27,6 @@ M5 Publishing → M6 Quality & perf → L Later
 
 ### M6 — Quality & performance
 
-- **[M6-5] Error handling + recovery UX** — M · M3-5
-  Legible failures; retry **only** the failed chunks.
-
 - **[M6-6] README + setup docs** — S
   Windows install, ffmpeg + optional Calibre notes, first-run walkthrough, measured RTF.
 
@@ -82,7 +79,7 @@ M5 Publishing → M6 Quality & perf → L Later
 
 ## ✔️ Done
 
-### M6 — Quality & performance (3 of 6 cards so far: M6-1, M6-3, M6-4)
+### M6 — Quality & performance (4 of 6 cards so far: M6-1, M6-3, M6-4, M6-5)
 
 - **[M6-1] bench.py + RTF gate** — M · M4-* — `scripts/bench.py` renders a fixed ~5-minute passage
   per language through the **real production pipeline** (`pipeline.runner.run_job()` — pooled
@@ -226,6 +223,35 @@ M5 Publishing → M6 Quality & perf → L Later
   235). Frontend verified via a clean `tsc -b && vite build` and `oxlint` pass (same pre-existing,
   unrelated `Render.tsx` warning) rather than an actual browser session, given the Chrome extension
   still wasn't connected in this environment.
+
+- **[M6-5] Error handling + recovery UX** — M · M3-5 — closed both halves the card names.
+  1. **Legible failures.** The synthesize stage's failure message previously named only *how many*
+     chunks failed and the raw exception text of the first one — `"2 chunk(s) failed to synthesize:
+     Voice xyz not found in available voices"` — with no way to tell *which* sentence in the book
+     actually triggered it. Now: `"Speech synthesis failed on 2 of 2 chunk(s). First failure —
+     "Chapter One": Voice xyz not found in available voices"` — the exact chunk text (each `Segment`
+     already stored it; nothing new had to be tracked) is what actually lets a user find and fix (or
+     lexicon-substitute) whatever the engine choked on, verified against a real, unmocked failure (a
+     nonexistent voice id, not a monkeypatched exception).
+  2. **Retry.** A new `POST /api/jobs/{id}/retry` (409 if the job isn't actually failed/cancelled)
+     starts a *new* job reusing the original's voice/speed/formats/video_style — sparing a trip back
+     through the Render page to re-enter settings already chosen once — with a matching "Retry" button
+     on the Job page. "Retry only the failed chunks" needed no new mechanism at all: it falls straight
+     out of the existing content-addressed chunk cache ([M2-5]) — every chunk that synthesized
+     successfully on the first attempt is an instant cache hit on retry, and only the chunk(s) that
+     actually failed pay for real re-synthesis. `create_render_job`'s thread-starting code was factored
+     into a shared `_start_job_thread()` helper so retry didn't have to duplicate it.
+  ✅ Verified end to end against the real API (real Kokoro synthesis, not mocked): created a job,
+  cancelled it, retried it, and confirmed the new job is a genuinely different job id carrying over
+  every one of voice/speed/video_style, and that it actually renders to `done` with every requested
+  format present. Separate tests cover retrying a still-running job (409) and a nonexistent one (404).
+  3 new API-level tests, 1 new pipeline-level test (the failure-message content). Full backend suite:
+  243 passed (up from 239). Frontend verified via a clean `tsc -b && vite build` and `oxlint` pass (same
+  pre-existing, unrelated `Render.tsx` warning), plus a live HTTP check against the real running dev
+  server (restarted, since `--reload` had again stopped picking up file changes partway through this
+  session — the same quirk noted in [M6-4]) — real user data was present on that server by this point
+  (the user has started using the app this session), so verification stayed to non-destructive
+  requests (a 404 retry, a disk-usage read) rather than creating jobs against their real books.
 
 ### M5 — Publishing (all 9 cards) — 🎯 G4 achieved
 

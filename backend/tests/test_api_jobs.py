@@ -135,6 +135,46 @@ def test_cancel_job_reaches_cancelled_status(client, uploaded_book_id):
 
 
 @pytest.mark.slow
+def test_retry_job_creates_a_new_job_reusing_the_original_settings(client, uploaded_book_id):
+    """[M6-5]: retrying a cancelled/failed job spares the user re-entering voice/speed/
+    formats/video_style — the new job reuses all of them and actually renders."""
+    original_resp = client.post(
+        f"/api/books/{uploaded_book_id}/jobs",
+        json={"voice": "af_bella", "speed": 1.25, "formats": ["mp3", "chapters"], "video_style": "static"},
+    )
+    original_id = original_resp.json()["id"]
+    client.post(f"/api/jobs/{original_id}/cancel")
+    _poll_until_terminal(client, original_id)
+
+    retry_resp = client.post(f"/api/jobs/{original_id}/retry")
+    assert retry_resp.status_code == 201
+    retried = retry_resp.json()
+    assert retried["id"] != original_id
+    assert retried["voice"] == "af_bella"
+    assert retried["speed"] == 1.25
+    assert retried["video_style"] == "static"
+
+    final = _poll_until_terminal(client, retried["id"])
+    assert final["status"] == "done", final
+    assert {a["format"] for a in final["artifacts"]} == {"mp3", "chapters"}
+
+
+def test_retry_job_on_a_running_job_returns_409(client, uploaded_book_id):
+    resp = client.post(f"/api/books/{uploaded_book_id}/jobs", json={"voice": "af_heart"})
+    job_id = resp.json()["id"]
+    try:
+        retry_resp = client.post(f"/api/jobs/{job_id}/retry")
+        assert retry_resp.status_code == 409
+    finally:
+        client.post(f"/api/jobs/{job_id}/cancel")  # don't leave a render running past the test
+
+
+def test_retry_nonexistent_job_returns_404(client):
+    resp = client.post("/api/jobs/999999/retry")
+    assert resp.status_code == 404
+
+
+@pytest.mark.slow
 def test_job_events_stream_sends_updates_and_closes(client, uploaded_book_id):
     resp = client.post(f"/api/books/{uploaded_book_id}/jobs", json={"voice": "af_heart", "speed": 1.0})
     job_id = resp.json()["id"]

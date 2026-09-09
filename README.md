@@ -1,7 +1,10 @@
 # Audiobook Studio
 
 Local web app that turns a book (EPUB/PDF/TXT/DOCX/...) into a high-quality, chaptered audiobook
-and publish-ready video/audio files (MP3, M4B, MP4, SRT), fully offline, on CPU.
+and publish-ready video/audio files (MP3, M4B, MP4, SRT), fully offline, on CPU. It's a
+single-user tool for your own machine — no account, no cloud API keys, no upload of your books
+or audio anywhere. Everything (parsing, text normalization, speech synthesis, mastering, and
+export) runs locally; books, cache, and rendered output all live under a local `data/` folder.
 
 - **Languages:** English, Polish, German, Chinese
 - **Engines:** Kokoro-82M (EN/ZH) + Piper (PL/DE), both via ONNX Runtime on CPU — no GPU/CUDA required
@@ -86,6 +89,25 @@ npm run dev
 
 Then open **http://localhost:5173**. `fetch_models.py` is resumable and safe to re-run if a
 download gets interrupted — it skips anything already present and verified.
+
+For day-to-day use after that, build the frontend once with `npm --prefix frontend run build`
+and use the one-click launcher below instead of running two dev servers by hand.
+
+## Quick start (one click, Windows)
+
+Once the [Setup](#setup) steps above have been done at least once (venv created, dependencies
+installed, models downloaded), double-click **`start.bat`** in the project root — or run it from
+a terminal:
+
+```powershell
+.\start.bat
+```
+
+It builds the frontend the first time it's needed, starts the backend (which also serves the
+built UI on the same port), and opens **http://127.0.0.1:8000** in your default browser
+automatically. A console window titled "Audiobook Studio" stays open while the app runs — close
+it to stop the server. Re-run `npm --prefix frontend run build` (or delete `frontend/dist`) after
+pulling frontend changes so `start.bat` picks them up.
 
 ## First run
 
